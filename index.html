@@ -1,0 +1,753 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
+<title>Refeições</title>
+<meta name="theme-color" content="#0f766e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Refeições">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
+<style>
+:root{
+  --bg:#f4f7f6; --card:#ffffff; --ink:#14201d; --muted:#5d6b67; --line:#e2e8e6;
+  --brand:#0f766e; --brand-ink:#ffffff; --soft:#e3f2ef; --warn:#b45309; --danger:#b91c1c;
+  --shadow:0 1px 2px rgba(0,0,0,.05),0 4px 14px rgba(0,0,0,.05);
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#0d1412;--card:#16201d;--ink:#e7efec;--muted:#93a39e;--line:#26332f;
+    --brand:#2bb3a3;--brand-ink:#06201c;--soft:#173430;--warn:#f59e0b;--danger:#f87171;
+    --shadow:none}
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif}
+body{padding:env(safe-area-inset-top) 0 calc(76px + env(safe-area-inset-bottom))}
+input,select,textarea,button{font:inherit;font-size:16px!important;color:inherit}
+header.top{padding:18px 16px 6px}
+header.top h1{margin:0;font-size:28px;letter-spacing:-.02em}
+header.top p{margin:2px 0 0;color:var(--muted);font-size:14px}
+main{padding:8px 16px 24px;max-width:640px;margin:0 auto}
+.view{display:none}.view.on{display:block}
+.card{background:var(--card);border-radius:16px;padding:16px;margin:12px 0;box-shadow:var(--shadow);border:1px solid var(--line)}
+.hero{background:var(--brand);color:var(--brand-ink);border:none}
+.hero .lbl{font-size:13px;text-transform:uppercase;letter-spacing:.06em;opacity:.85}
+.hero .time{font-size:44px;font-weight:700;letter-spacing:-.03em;line-height:1.1;margin:4px 0}
+.hero .count{font-size:15px;opacity:.9}
+.hero ul{margin:12px 0 0;padding-left:20px}
+.hero li{margin:3px 0;font-size:17px}
+.hero .notebox{background:rgba(255,255,255,.14);border-radius:10px;padding:10px 12px;margin-top:12px;font-size:14px}
+@media (prefers-color-scheme:dark){.hero .notebox{background:rgba(0,0,0,.15)}}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:22px 4px 6px;font-weight:600}
+.meal{display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-top:1px solid var(--line)}
+.meal:first-child{border-top:none}
+.meal .t{font-weight:700;min-width:52px;font-variant-numeric:tabular-nums}
+.meal .body{flex:1;min-width:0}
+.meal .body ul{margin:0;padding-left:18px}
+.meal .body li{margin:1px 0}
+.meal .sub{font-size:13px;color:var(--muted);margin-top:4px}
+.meal.past .t,.meal.past .body{opacity:.45}
+.meal.next .t{color:var(--brand)}
+.meal.done .body{text-decoration:line-through;opacity:.5}
+.chk{width:30px;height:30px;border-radius:50%;border:2px solid var(--line);background:none;flex:none;display:grid;place-items:center;cursor:pointer;padding:0}
+.chk.on{background:var(--brand);border-color:var(--brand);color:var(--brand-ink)}
+.chk svg{width:16px;height:16px}
+details.note{margin-top:6px}
+details.note summary{cursor:pointer;color:var(--brand);font-size:14px}
+details.note ul{font-size:14px;margin:6px 0 0}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:none;border-radius:12px;padding:12px 16px;font-weight:600;cursor:pointer;background:var(--soft);color:var(--brand);text-decoration:none}
+.btn.primary{background:var(--brand);color:var(--brand-ink)}
+.btn.block{width:100%}
+.btn.small{padding:8px 12px;font-size:14px!important;border-radius:10px}
+.btn.danger{color:var(--danger);background:transparent;border:1px solid var(--line)}
+.btn:disabled{opacity:.5}
+.row{display:flex;gap:10px;align-items:center}
+.row>*{flex:1;min-width:0}
+.stack>*+*{margin-top:10px}
+label.f{display:block;font-size:14px;color:var(--muted);margin-bottom:4px}
+input[type=time],input[type=date],input[type=number],input[type=text],select,textarea{
+  width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);outline:none}
+textarea{min-height:76px;resize:vertical}
+input:focus,select:focus,textarea:focus{border-color:var(--brand)}
+.muted{color:var(--muted)}.small{font-size:14px}
+.empty{text-align:center;padding:28px 12px}
+.empty .ico{font-size:44px}
+.drop{border:2px dashed var(--line);border-radius:16px;padding:22px;text-align:center;cursor:pointer;display:block}
+.drop:hover{border-color:var(--brand)}
+.edmeal{border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0;background:var(--bg)}
+.edmeal .hd{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.edmeal .hd input[type=time]{width:120px;flex:none}
+.edmeal .hd input[type=text]{flex:1}
+.x{border:none;background:none;color:var(--muted);font-size:22px;cursor:pointer;padding:4px 8px;line-height:1}
+.pill{display:inline-block;font-size:12px;padding:2px 8px;border-radius:99px;background:var(--soft);color:var(--brand);font-weight:600}
+.hist{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 0;border-top:1px solid var(--line)}
+.hist:first-child{border-top:none}
+ol.steps{padding-left:20px;margin:8px 0}
+ol.steps li{margin:6px 0}
+.warn{color:var(--warn)}
+nav.tabs{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);
+  display:flex;padding:6px 8px calc(6px + env(safe-area-inset-bottom));z-index:10}
+nav.tabs button{flex:1;border:none;background:none;padding:6px 0;color:var(--muted);font-size:12px!important;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer}
+nav.tabs button svg{width:24px;height:24px}
+nav.tabs button.on{color:var(--brand)}
+.toast{position:fixed;left:50%;bottom:calc(90px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:20;max-width:90vw}
+.toast.on{opacity:1}
+.sheet{position:fixed;inset:0;background:var(--bg);z-index:30;overflow:auto;display:none;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+.sheet.on{display:block}
+.sheet .bar{position:sticky;top:0;background:var(--bg);display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--line);z-index:2}
+.sheet .bar h3{margin:0;font-size:17px}
+.spin{display:inline-block;width:18px;height:18px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1 id="ttl">Hoje</h1>
+  <p id="subttl"></p>
+</header>
+
+<main>
+  <!-- HOJE -->
+  <section class="view on" id="v-hoje"></section>
+
+  <!-- PLANO -->
+  <section class="view" id="v-plano"></section>
+
+  <!-- AVISOS -->
+  <section class="view" id="v-avisos"></section>
+</main>
+
+<nav class="tabs">
+  <button data-tab="hoje" class="on">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Hoje</button>
+  <button data-tab="plano">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>Plano</button>
+  <button data-tab="avisos">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>Avisos</button>
+</nav>
+
+<!-- Editor (rever plano) -->
+<div class="sheet" id="sheet">
+  <div class="bar">
+    <button class="btn small" id="edCancel">Cancelar</button>
+    <h3 id="edTitle">Rever plano</h3>
+    <button class="btn small primary" id="edSave">Guardar</button>
+  </div>
+  <main id="edBody"></main>
+</div>
+
+<input type="file" id="file" accept="application/pdf,.pdf" hidden>
+<div class="toast" id="toast"></div>
+
+<script>
+/* =========================================================
+   Refeições — plano alimentar com avisos
+   Tudo fica no dispositivo (localStorage). O PDF é lido
+   localmente com pdf.js; nada é enviado para servidores.
+   ========================================================= */
+const APP_VER = 'v1';
+const LS_KEY = 'refeicoes.v1';
+const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
+
+const $ = (s, el=document) => el.querySelector(s);
+const $$ = (s, el=document) => [...el.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid = () => Math.random().toString(36).slice(2, 10);
+const pad = n => String(n).padStart(2, '0');
+const ymd = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const fmtDate = s => { if(!s) return ''; const [y,m,d] = s.split('-'); return `${d}/${m}/${y}`; };
+const toMin = t => { const [h,m] = t.split(':').map(Number); return h*60+m; };
+const fromMin = m => `${pad(Math.floor(((m%1440)+1440)%1440/60))}:${pad(((m%60)+60)%60)}`;
+
+/* ---------- estado ---------- */
+function load(){
+  try { const s = JSON.parse(localStorage.getItem(LS_KEY)); if (s && s.plans) return s; } catch(e){}
+  return { plans: [], activeId: null, settings: { lead: 15, atTime: false }, done: {} };
+}
+let S = load();
+function save(){ try { localStorage.setItem(LS_KEY, JSON.stringify(S)); } catch(e){ toast('Não foi possível guardar'); } }
+const activePlan = () => S.plans.find(p => p.id === S.activeId) || null;
+
+function toast(msg, ms=2200){
+  const t = $('#toast'); t.textContent = msg; t.classList.add('on');
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('on'), ms);
+}
+
+/* =========================================================
+   LEITURA DO PDF
+   ========================================================= */
+let pdfjsReady = null;
+function loadPdfJs(){
+  if (pdfjsReady) return pdfjsReady;
+  pdfjsReady = new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = PDFJS + 'pdf.min.js';
+    s.onload = () => { window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS + 'pdf.worker.min.js'; res(window.pdfjsLib); };
+    s.onerror = () => { pdfjsReady = null; rej(new Error('Sem ligação para carregar o leitor de PDF')); };
+    document.head.appendChild(s);
+  });
+  return pdfjsReady;
+}
+
+// Reconstrói linhas de texto agrupando fragmentos pela posição vertical.
+async function pdfToLines(file){
+  const lib = await loadPdfJs();
+  const pdf = await lib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const lines = [];
+  for (let p = 1; p <= pdf.numPages; p++){
+    const page = await pdf.getPage(p);
+    const tc = await page.getTextContent();
+    const rows = [];
+    for (const it of tc.items){
+      if (!('str' in it) || !it.str.trim() && !it.str.includes(' ')) continue;
+      const x = it.transform[4], y = it.transform[5], h = Math.abs(it.transform[3]) || 10;
+      let row = rows.find(r => Math.abs(r.y - y) < Math.max(2, h*0.4));
+      if (!row){ row = { y, parts: [] }; rows.push(row); }
+      row.parts.push({ x, s: it.str, w: it.width || 0 });
+    }
+    rows.sort((a, b) => b.y - a.y);
+    for (const r of rows){
+      r.parts.sort((a, b) => a.x - b.x);
+      let s = '', end = null;
+      for (const pt of r.parts){
+        if (end !== null && pt.x - end > 1.5 && !/\s$/.test(s) && !/^\s/.test(pt.s)) s += ' ';
+        s += pt.s; end = pt.x + pt.w;
+      }
+      s = s.replace(/\s+/g, ' ').trim();
+      if (s) lines.push(s);
+    }
+  }
+  return lines;
+}
+
+const TIME_RE = /(\d{1,2})\s*[.:hH]\s*(\d{2})\s*(?:horas|hrs?|h)?(?![\d])/i;
+const BULLET_RE = /^\s*[-–—•·*▪●◦‣○]\s*/;
+const AUTHOR_RE = /nutricionista|dietista|\bdra?\.\s|c[ée]dula|\(\d{3,5}N\)/i;
+const REF_RE = /igual\s+(?:à|a|ao|aos)\s+(?:da\s+)?(?:refei[cç](?:ão|ao)\s+)?(?:das?|às?|as)\s+(\d{1,2})\s*[.:hH]\s*(\d{2})/i;
+
+function cleanItem(s){
+  return s.replace(BULLET_RE, '').replace(/\s+/g, ' ').replace(/\s+([.,;:)])/g, '$1').trim();
+}
+
+// Converte linhas de texto num plano: refeições (hora + itens), notas (ex.: "Composição do caldo") e avisos gerais.
+function parsePlan(lines){
+  const plan = { title: '', author: '', meals: [], notes: [], general: [] };
+  const pre = [];
+  let cur = null;      // {items:[]} — refeição ou nota a receber itens
+  let last = null;     // [arr, idx] último item (para juntar linhas partidas)
+
+  const addItem = (arr, text) => { if (!text) return; arr.push(text); last = [arr, arr.length - 1]; };
+
+  for (const raw of lines){
+    const line = raw.trim();
+    if (!line) continue;
+    if (AUTHOR_RE.test(line) && line.length < 90){ plan.author = line; continue; }
+
+    const bullet = BULLET_RE.test(line);
+    const m = !bullet && line.match(TIME_RE);
+    if (m){
+      const hh = +m[1], mm = +m[2];
+      const before = line.slice(0, m.index).replace(/[\s:(\-–—|,]+$/, '').trim();
+      const after = line.slice(m.index + m[0].length).replace(/^[\s:)\-–—|,]+/, '').trim();
+      const looksRef = REF_RE.test(line) || /\b(igual|mesma|como|até|antes|depois|entre)\b|\b(das?|às?|as)\s*$/i.test(before);
+      if (hh <= 23 && mm <= 59 && !looksRef && before.length <= 32 && (m.index === 0 || before.length > 0)){
+        const meal = { id: uid(), time: `${pad(hh)}:${pad(mm)}`, name: before, items: [], enabled: true };
+        plan.meals.push(meal);
+        cur = meal; last = null;
+        if (after) addItem(meal.items, cleanItem(after));
+        continue;
+      }
+    }
+
+    if (bullet){
+      addItem(cur ? cur.items : plan.general, cleanItem(line));
+      continue;
+    }
+
+    // Título de secção (ex.: "Composição do caldo:")
+    if (/:\s*$/.test(line) && line.length <= 60 && plan.meals.length){
+      const note = { id: uid(), title: line.replace(/:\s*$/, '').trim(), items: [] };
+      plan.notes.push(note); cur = note; last = null;
+      continue;
+    }
+
+    // Continuação de um item partido em duas linhas
+    if (last && (/^[a-zà-ú(]/.test(line) || !/[.!?:)]$/.test(last[0][last[1]]))){
+      last[0][last[1]] = cleanItem(last[0][last[1]] + ' ' + line);
+      continue;
+    }
+
+    if (!plan.meals.length){ pre.push(line); continue; }
+
+    // Texto solto depois das refeições → aviso geral (ex.: suplemento)
+    cur = null;
+    addItem(plan.general, cleanItem(line));
+  }
+
+  plan.title = pre.filter(l => !/^plano/i.test(l)).join(' ') || '';
+  resolveRefs(plan);
+  plan.meals.sort((a, b) => toMin(a.time) - toMin(b.time));
+  plan.general = plan.general.map(text => ({ id: uid(), text, time: /suplement|vitamin|medica/i.test(text) ? '09:00' : '', remind: /suplement|vitamin|medica/i.test(text) }));
+  return plan;
+}
+
+// "Igual à refeição das 12.30H" → copia os itens dessa refeição.
+function resolveRefs(plan){
+  for (const meal of plan.meals){
+    const idx = meal.items.findIndex(i => REF_RE.test(i));
+    if (idx < 0) continue;
+    const r = meal.items[idx].match(REF_RE);
+    const t = `${pad(+r[1])}:${pad(+r[2])}`;
+    const src = plan.meals.find(x => x.time === t && x !== meal);
+    if (src && !src.items.some(i => REF_RE.test(i))){
+      meal.items.splice(idx, 1, ...src.items);
+      meal.sameAs = t;
+    }
+  }
+}
+
+// Notas cujo assunto aparece nos itens da refeição (ex.: "caldo").
+const STOP = new Set(['composição','composicao','preparação','preparacao','receita','como','fazer','para','sobre','notas','nota','observações','observacoes','lista','alimentos']);
+function notesFor(plan, meal){
+  const text = meal.items.join(' ').toLowerCase();
+  return (plan.notes || []).filter(n => {
+    const kws = n.title.toLowerCase().split(/[^a-zà-ú]+/).filter(w => w.length > 3 && !STOP.has(w));
+    return kws.some(k => text.includes(k));
+  });
+}
+
+/* =========================================================
+   CALENDÁRIO (.ics)
+   ========================================================= */
+function icsEsc(s){ return String(s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n'); }
+function fold(line){
+  const enc = new TextEncoder(); const out = []; let cur = '', bytes = 0;
+  for (const ch of line){
+    const b = enc.encode(ch).length;
+    if (bytes + b > (out.length ? 74 : 75)){ out.push(cur); cur = ''; bytes = 0; }
+    cur += ch; bytes += b;
+  }
+  out.push(cur);
+  return out.join('\r\n ');
+}
+function summaryOf(meal){
+  let s = meal.items.join(' + ').replace(/\.(\s|$)/g, '$1').replace(/\s+/g, ' ').trim();
+  if (s.length > 110) s = s.slice(0, 107).trim() + '…';
+  return s || 'Refeição';
+}
+function buildICS(plan){
+  const { lead, atTime } = S.settings;
+  const now = new Date();
+  const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+  const startDate = (plan.start || ymd(now)).replace(/-/g, '');
+  const until = plan.end ? `;UNTIL=${plan.end.replace(/-/g, '')}T235959` : '';
+  const L = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Refeicoes//PT', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+             'X-WR-CALNAME:Plano alimentar'];
+  const alarm = (desc, onTime) => {
+    const a = ['BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsEsc(desc)}`, `TRIGGER:-PT${onTime ? 0 : Math.max(0, +lead || 0)}M`, 'END:VALARM'];
+    if (!onTime && atTime && +lead > 0) a.push('BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsEsc(desc)}`, 'TRIGGER:PT0M', 'END:VALARM');
+    return a;
+  };
+  const ev = (key, time, summary, desc, onTime) => {
+    const [h, m] = time.split(':');
+    L.push('BEGIN:VEVENT', `UID:${plan.id}-${key}@refeicoes`, `DTSTAMP:${stamp}`,
+      `DTSTART:${startDate}T${h}${m}00`, 'DURATION:PT15M', `RRULE:FREQ=DAILY${until}`,
+      `SUMMARY:${icsEsc(summary)}`, `DESCRIPTION:${icsEsc(desc)}`, 'TRANSP:TRANSPARENT',
+      ...alarm(summary, onTime), 'END:VEVENT');
+  };
+  for (const meal of plan.meals.filter(m => m.enabled !== false)){
+    const notes = notesFor(plan, meal);
+    let desc = meal.items.map(i => '• ' + i).join('\n');
+    if (meal.sameAs) desc += `\n(igual à refeição das ${meal.sameAs})`;
+    for (const n of notes) desc += `\n\n${n.title}:\n` + n.items.map(i => '• ' + i).join('\n');
+    ev(meal.time.replace(':', ''), meal.time, `🍽️ ${meal.time} · ${summaryOf(meal)}`, desc);
+  }
+  for (const g of (plan.general || []).filter(g => g.remind && g.time)){
+    ev('g-' + g.id, g.time, `💊 ${g.text.replace(/\.$/, '')}`, g.text, true);
+  }
+  L.push('END:VCALENDAR');
+  return L.map(fold).join('\r\n') + '\r\n';
+}
+
+async function exportICS(mode){
+  const plan = activePlan();
+  if (!plan) return toast('Ainda não tens um plano ativo');
+  const txt = buildICS(plan);
+  const name = `plano-alimentar-${plan.start || ymd(new Date())}.ics`;
+  const file = new File([txt], name, { type: 'text/calendar' });
+  if (mode === 'share'){
+    if (navigator.canShare && navigator.canShare({ files: [file] })){
+      try { await navigator.share({ files: [file], title: 'Plano alimentar' }); } catch(e){}
+      return;
+    }
+    toast('Partilha não suportada aqui — a descarregar o ficheiro');
+  }
+  const url = URL.createObjectURL(file);
+  const a = document.createElement('a');
+  a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  S.lastExport = { planId: plan.id, at: new Date().toISOString(), lead: S.settings.lead }; save();
+  renderAvisos();
+}
+
+/* =========================================================
+   VISTA: HOJE
+   ========================================================= */
+const ICON_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>';
+
+function nextMeal(plan, now = new Date()){
+  const meals = plan.meals.filter(m => m.enabled !== false);
+  if (!meals.length) return null;
+  const nowMin = now.getHours()*60 + now.getMinutes();
+  const today = meals.find(m => toMin(m.time) > nowMin);
+  if (today) return { meal: today, inMin: toMin(today.time) - nowMin, tomorrow: false };
+  return { meal: meals[0], inMin: 1440 - nowMin + toMin(meals[0].time), tomorrow: true };
+}
+function humanIn(min){
+  if (min < 1) return 'agora';
+  const h = Math.floor(min/60), m = min % 60;
+  return 'daqui a ' + (h ? `${h} h` + (m ? ` ${m} min` : '') : `${m} min`);
+}
+function itemsHTML(items){ return '<ul>' + items.map(i => `<li>${esc(i)}</li>`).join('') + '</ul>'; }
+
+function renderHoje(){
+  const el = $('#v-hoje');
+  const plan = activePlan();
+  if (!plan){
+    el.innerHTML = `<div class="card empty">
+      <div class="ico">🥣</div>
+      <h3 style="margin:8px 0 4px">Ainda sem plano</h3>
+      <p class="muted">Carrega o PDF do plano alimentar que a nutricionista te deu.</p>
+      <button class="btn primary block" onclick="pickPdf()">Carregar PDF</button>
+      <p class="small muted" style="margin-top:12px">O PDF é lido só no teu iPhone. Não é enviado para lado nenhum.</p>
+    </div>`;
+    return;
+  }
+  const now = new Date(), nowMin = now.getHours()*60 + now.getMinutes();
+  const today = ymd(now), done = new Set(S.done[today] || []);
+  const nx = nextMeal(plan, now);
+  let hero = '';
+  if (nx){
+    const notes = notesFor(plan, nx.meal);
+    const warnAt = fromMin(toMin(nx.meal.time) - (+S.settings.lead || 0));
+    hero = `<div class="card hero">
+      <div class="lbl">Próxima refeição${nx.tomorrow ? ' · amanhã' : ''}</div>
+      <div class="time">${nx.meal.time}</div>
+      <div class="count">${humanIn(nx.inMin)} · aviso às ${warnAt}</div>
+      ${itemsHTML(nx.meal.items)}
+      ${notes.map(n => `<div class="notebox"><b>${esc(n.title)}:</b> ${n.items.map(esc).join(' · ')}</div>`).join('')}
+    </div>`;
+  }
+  const meals = plan.meals.filter(m => m.enabled !== false);
+  const list = meals.map(m => {
+    const t = toMin(m.time), isDone = done.has(m.time);
+    const cls = [isDone ? 'done' : '', !isDone && t <= nowMin ? 'past' : '', nx && !nx.tomorrow && nx.meal === m ? 'next' : ''].join(' ');
+    const notes = notesFor(plan, m);
+    return `<div class="meal ${cls}">
+      <div class="t">${m.time}</div>
+      <div class="body">${itemsHTML(m.items)}
+        ${m.sameAs ? `<div class="sub">Igual à refeição das ${m.sameAs}</div>` : ''}
+        ${notes.map(n => `<details class="note"><summary>${esc(n.title)}</summary>${itemsHTML(n.items)}</details>`).join('')}
+      </div>
+      <button class="chk ${isDone ? 'on' : ''}" aria-label="Feita" onclick="toggleDone('${m.time}')">${isDone ? ICON_CHECK : ''}</button>
+    </div>`;
+  }).join('');
+  const gen = (plan.general || []).map(g => `<li>${esc(g.text)}</li>`).join('');
+  el.innerHTML = hero +
+    `<h2>Hoje · ${done.size}/${meals.length} feitas</h2><div class="card" style="padding:4px 16px">${list}</div>` +
+    (gen ? `<h2>Lembra-te</h2><div class="card"><ul style="margin:0;padding-left:18px">${gen}</ul></div>` : '') +
+    (!S.lastExport || S.lastExport.planId !== plan.id ? `<div class="card"><b>🔔 Avisos ainda não ativados</b><p class="small muted" style="margin:4px 0 10px">Adiciona o plano ao Calendário do iPhone para receberes os avisos antes de cada refeição, mesmo com a app fechada.</p><button class="btn primary block" onclick="go('avisos')">Ativar avisos</button></div>` : '');
+}
+function toggleDone(time){
+  const k = ymd(new Date()); const s = new Set(S.done[k] || []);
+  s.has(time) ? s.delete(time) : s.add(time);
+  S.done = { [k]: [...s] };   // guarda só o dia atual
+  save(); renderHoje();
+}
+
+/* =========================================================
+   VISTA: PLANO
+   ========================================================= */
+function renderPlano(){
+  const el = $('#v-plano');
+  const plan = activePlan();
+  const hist = S.plans.filter(p => p.id !== S.activeId).sort((a, b) => (b.start || '').localeCompare(a.start || ''));
+  el.innerHTML = `
+    <label class="drop" onclick="pickPdf()">
+      <div style="font-size:30px">📄</div>
+      <b>Carregar novo plano (PDF)</b>
+      <div class="small muted">Quando a dieta mudar, carrega aqui o PDF novo</div>
+    </label>
+    <div style="text-align:center;margin-top:8px"><button class="btn small" onclick="openEditor(null)">ou criar plano manualmente</button></div>
+    ${plan ? `
+      <h2>Plano ativo</h2>
+      <div class="card">
+        <div class="row" style="align-items:flex-start">
+          <div>
+            <b>${esc(plan.name)}</b> <span class="pill">ativo</span>
+            <div class="small muted">Desde ${fmtDate(plan.start)}${plan.end ? ' até ' + fmtDate(plan.end) : ''} · ${plan.meals.length} refeições</div>
+            ${plan.author ? `<div class="small muted">${esc(plan.author)}</div>` : ''}
+          </div>
+          <button class="btn small" style="flex:none" onclick="openEditor('${plan.id}')">Editar</button>
+        </div>
+        <div style="margin-top:8px">
+          ${plan.meals.map(m => `<div class="meal"><div class="t">${m.time}</div><div class="body">${itemsHTML(m.items)}</div></div>`).join('')}
+        </div>
+        ${(plan.notes || []).map(n => `<div class="small" style="margin-top:10px"><b>${esc(n.title)}</b>${itemsHTML(n.items)}</div>`).join('')}
+      </div>` : ''}
+    ${hist.length ? `<h2>Planos anteriores</h2><div class="card" style="padding:4px 16px">
+      ${hist.map(p => `<div class="hist">
+        <div><b>${esc(p.name)}</b><div class="small muted">${fmtDate(p.start)}${p.end ? ' → ' + fmtDate(p.end) : ''} · ${p.meals.length} refeições</div></div>
+        <div class="row" style="flex:none;gap:6px">
+          <button class="btn small" onclick="activate('${p.id}')">Usar</button>
+          <button class="btn small danger" onclick="delPlan('${p.id}')">Apagar</button>
+        </div></div>`).join('')}
+    </div>` : ''}
+    <p class="small muted" style="text-align:center;margin-top:24px">Refeições ${APP_VER} · os dados ficam só neste dispositivo</p>`;
+}
+function activate(id){
+  const p = S.plans.find(x => x.id === id); if (!p) return;
+  if (!confirm(`Voltar a usar "${p.name}"? Depois atualiza os avisos no separador Avisos.`)) return;
+  const prev = activePlan(); if (prev && !prev.end) prev.end = ymd(new Date(Date.now() - 864e5));
+  p.end = ''; p.start = ymd(new Date()); S.activeId = id; save(); renderAll(); go('avisos');
+}
+function delPlan(id){
+  const p = S.plans.find(x => x.id === id);
+  if (!p || !confirm(`Apagar "${p.name}"?`)) return;
+  S.plans = S.plans.filter(x => x.id !== id); save(); renderPlano();
+}
+
+/* ---------- carregar PDF ---------- */
+function pickPdf(){ const f = $('#file'); f.value = ''; f.click(); }
+$('#file').addEventListener('change', async e => {
+  const file = e.target.files[0]; if (!file) return;
+  toast('A ler o PDF…', 8000);
+  try {
+    const lines = await pdfToLines(file);
+    if (!lines.length) throw new Error('scan');
+    const parsed = parsePlan(lines);
+    if (!parsed.meals.length){
+      toast('Não encontrei horários no PDF — podes criar o plano à mão', 4000);
+      openEditor(null, { ...parsed, rawText: lines.join('\n') });
+      return;
+    }
+    toast(`Encontrei ${parsed.meals.length} refeições — confirma se está tudo certo`, 3500);
+    openEditor(null, { ...parsed, fileName: file.name });
+  } catch(err){
+    console.error(err);
+    toast(err.message === 'scan' ? 'O PDF parece ser uma imagem (digitalizado) — cria o plano à mão' : 'Erro a ler o PDF: ' + err.message, 4500);
+    if (err.message === 'scan') openEditor(null, {});
+  }
+});
+
+/* ---------- editor ---------- */
+let draft = null, draftIsNew = false;
+function openEditor(planId, parsed){
+  if (planId){
+    draft = JSON.parse(JSON.stringify(S.plans.find(p => p.id === planId)));
+    draftIsNew = false;
+  } else {
+    const p = parsed || {};
+    draft = {
+      id: uid(), name: 'Plano de ' + fmtDate(ymd(new Date())), start: ymd(new Date()), end: '',
+      author: p.author || '', title: p.title || '', fileName: p.fileName || '',
+      meals: p.meals && p.meals.length ? p.meals : [{ id: uid(), time: '09:00', name: '', items: [], enabled: true }],
+      notes: p.notes || [], general: p.general || [], rawText: p.rawText || ''
+    };
+    draftIsNew = true;
+  }
+  $('#edTitle').textContent = draftIsNew ? 'Rever plano novo' : 'Editar plano';
+  $('#edSave').textContent = draftIsNew ? 'Ativar' : 'Guardar';
+  renderEditor();
+  $('#sheet').classList.add('on'); $('#sheet').scrollTop = 0;
+  document.body.style.overflow = 'hidden';
+}
+function closeEditor(){ $('#sheet').classList.remove('on'); document.body.style.overflow = ''; draft = null; }
+
+function renderEditor(){
+  const d = draft;
+  $('#edBody').innerHTML = `
+    ${draftIsNew && d.meals.length > 1 ? `<div class="card" style="background:var(--soft);border:none"><b>✅ Li ${d.meals.length} refeições do PDF.</b><div class="small">Confirma as horas e o que comer. Podes corrigir o que estiver mal. Um item por linha.</div></div>` : ''}
+    ${d.rawText ? `<details class="card"><summary><b>Texto encontrado no PDF</b></summary><pre style="white-space:pre-wrap;font-size:13px">${esc(d.rawText)}</pre></details>` : ''}
+    <div class="card stack">
+      <div><label class="f">Nome do plano</label><input type="text" data-k="name" value="${esc(d.name)}"></div>
+      <div class="row">
+        <div><label class="f">Começa a</label><input type="date" data-k="start" value="${esc(d.start)}"></div>
+        <div><label class="f">Termina a (opcional)</label><input type="date" data-k="end" value="${esc(d.end)}"></div>
+      </div>
+    </div>
+    <h2>Refeições</h2>
+    ${d.meals.map((m, i) => `
+      <div class="edmeal" data-i="${i}">
+        <div class="hd">
+          <input type="time" data-m="time" value="${esc(m.time)}">
+          <input type="text" data-m="name" placeholder="Nome (opcional)" value="${esc(m.name || '')}">
+          <button class="x" onclick="rmMeal(${i})" aria-label="Remover">×</button>
+        </div>
+        <textarea data-m="items" placeholder="O que comer — um item por linha">${esc(m.items.join('\n'))}</textarea>
+      </div>`).join('')}
+    <button class="btn block" onclick="addMeal()">+ Adicionar refeição</button>
+
+    <h2>Notas (ex.: composição do caldo)</h2>
+    ${(d.notes || []).map((n, i) => `
+      <div class="edmeal" data-n="${i}">
+        <div class="hd"><input type="text" data-nk="title" value="${esc(n.title)}" placeholder="Título"><button class="x" onclick="rmNote(${i})">×</button></div>
+        <textarea data-nk="items">${esc(n.items.join('\n'))}</textarea>
+      </div>`).join('')}
+    <button class="btn block" onclick="addNote()">+ Adicionar nota</button>
+    <p class="small muted">Se o título da nota aparecer numa refeição (ex.: "caldo"), a nota aparece junto dessa refeição e no aviso.</p>
+
+    <h2>Lembretes diários</h2>
+    ${(d.general || []).map((g, i) => `
+      <div class="edmeal" data-g="${i}">
+        <div class="hd"><input type="text" data-gk="text" value="${esc(g.text)}"><button class="x" onclick="rmGen(${i})">×</button></div>
+        <div class="row">
+          <label class="small" style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-gk="remind" ${g.remind ? 'checked' : ''} style="width:auto"> Avisar às</label>
+          <input type="time" data-gk="time" value="${esc(g.time || '')}">
+        </div>
+      </div>`).join('')}
+    <button class="btn block" onclick="addGen()">+ Adicionar lembrete</button>
+    ${!draftIsNew ? `<div style="height:20px"></div>` : ''}
+    <div style="height:40px"></div>`;
+}
+// Lê os campos do editor para o rascunho.
+function syncDraft(){
+  if (!draft) return;
+  $$('#edBody [data-k]').forEach(i => draft[i.dataset.k] = i.value);
+  $$('#edBody [data-i]').forEach(box => {
+    const m = draft.meals[+box.dataset.i];
+    m.time = $('[data-m=time]', box).value || m.time;
+    m.name = $('[data-m=name]', box).value.trim();
+    const items = $('[data-m=items]', box).value.split('\n').map(cleanItem).filter(Boolean);
+    if (items.join('\n') !== m.items.join('\n')) delete m.sameAs;
+    m.items = items;
+  });
+  $$('#edBody [data-n]').forEach(box => {
+    const n = draft.notes[+box.dataset.n];
+    n.title = $('[data-nk=title]', box).value.trim();
+    n.items = $('[data-nk=items]', box).value.split('\n').map(cleanItem).filter(Boolean);
+  });
+  $$('#edBody [data-g]').forEach(box => {
+    const g = draft.general[+box.dataset.g];
+    g.text = $('[data-gk=text]', box).value.trim();
+    g.remind = $('[data-gk=remind]', box).checked;
+    g.time = $('[data-gk=time]', box).value;
+  });
+}
+function addMeal(){ syncDraft(); const last = draft.meals[draft.meals.length-1]; draft.meals.push({ id: uid(), time: last ? fromMin(toMin(last.time) + 120) : '09:00', name: '', items: [], enabled: true }); renderEditor(); }
+function rmMeal(i){ syncDraft(); draft.meals.splice(i, 1); renderEditor(); }
+function addNote(){ syncDraft(); (draft.notes ||= []).push({ id: uid(), title: '', items: [] }); renderEditor(); }
+function rmNote(i){ syncDraft(); draft.notes.splice(i, 1); renderEditor(); }
+function addGen(){ syncDraft(); (draft.general ||= []).push({ id: uid(), text: '', time: '09:00', remind: true }); renderEditor(); }
+function rmGen(i){ syncDraft(); draft.general.splice(i, 1); renderEditor(); }
+
+$('#edCancel').onclick = () => { if (draftIsNew && !confirm('Descartar este plano?')) return; closeEditor(); };
+$('#edSave').onclick = () => {
+  syncDraft();
+  const d = draft;
+  d.meals = d.meals.filter(m => m.time && m.items.length).sort((a, b) => toMin(a.time) - toMin(b.time));
+  d.notes = (d.notes || []).filter(n => n.title || n.items.length);
+  d.general = (d.general || []).filter(g => g.text);
+  if (!d.meals.length) return toast('Adiciona pelo menos uma refeição com hora e itens');
+  if (!d.start) d.start = ymd(new Date());
+  delete d.rawText;
+  if (draftIsNew){
+    const prev = activePlan();
+    if (prev && !prev.end){
+      const e = new Date(d.start + 'T12:00'); e.setDate(e.getDate() - 1); prev.end = ymd(e);
+    }
+    S.plans.push(d); S.activeId = d.id;
+  } else {
+    S.plans = S.plans.map(p => p.id === d.id ? d : p);
+    if (S.lastExport && S.lastExport.planId === d.id) S.lastExport.stale = true;
+  }
+  save(); closeEditor(); renderAll();
+  if (draftIsNew){ toast('Plano ativado! Agora ativa os avisos.', 3000); go('avisos'); }
+  else toast(S.lastExport && S.lastExport.stale ? 'Guardado — atualiza os avisos no Calendário' : 'Guardado');
+};
+
+/* =========================================================
+   VISTA: AVISOS
+   ========================================================= */
+function renderAvisos(){
+  const el = $('#v-avisos');
+  const plan = activePlan();
+  const lead = +S.settings.lead || 0;
+  const opts = [0, 5, 10, 15, 20, 30, 45, 60, 90];
+  if (!opts.includes(lead)) opts.push(lead);
+  const exported = S.lastExport && S.lastExport.planId === plan?.id;
+  const stale = exported && (S.lastExport.stale || S.lastExport.lead !== lead);
+  const hadOther = S.plans.length > 1;
+  el.innerHTML = `
+    <div class="card stack">
+      <div>
+        <label class="f">Avisar quanto tempo antes de cada refeição?</label>
+        <select id="lead">${opts.sort((a, b) => a - b).map(o => `<option value="${o}" ${o === lead ? 'selected' : ''}>${o === 0 ? 'À hora da refeição' : o < 60 ? o + ' minutos antes' : (o/60) + ' h antes'}</option>`).join('')}
+          <option value="custom">Outro…</option></select>
+      </div>
+      <label class="small" style="display:flex;gap:10px;align-items:center">
+        <input type="checkbox" id="atTime" ${S.settings.atTime ? 'checked' : ''} style="width:auto" ${lead === 0 ? 'disabled' : ''}>
+        Avisar também à hora da refeição
+      </label>
+    </div>
+
+    ${!plan ? `<div class="card empty"><p class="muted">Carrega primeiro um plano no separador Plano.</p></div>` : `
+    <div class="card">
+      ${exported && !stale ? `<p style="margin-top:0">✅ Avisos adicionados ao Calendário em ${new Date(S.lastExport.at).toLocaleDateString('pt-PT')}.</p>` : ''}
+      ${stale ? `<p class="warn" style="margin-top:0"><b>⚠️ Mudaste o plano ou o tempo do aviso.</b> Volta a adicionar ao Calendário (e apaga os antigos, ver passo 4).</p>` : ''}
+      <p style="margin-top:0"><b>Como funcionam os avisos</b></p>
+      <p class="small muted">O iPhone não deixa as webapps agendar notificações. Por isso, a app cria um evento diário por refeição no <b>Calendário</b> do iPhone, com o alarme ${lead ? lead + ' min antes' : 'à hora'}. Assim recebes o aviso com o que comer mesmo com a app fechada e sem internet.</p>
+      <p class="small" style="background:var(--soft);padding:10px 12px;border-radius:10px">Exemplo de aviso:<br><b>🍽️ ${plan.meals[0]?.time} · ${esc(summaryOf(plan.meals[0] || { items: [] }))}</b></p>
+      <button class="btn primary block" onclick="exportICS('download')">📅 Adicionar ao Calendário</button>
+      <div style="height:8px"></div>
+      <button class="btn block" onclick="exportICS('share')">Partilhar ficheiro…</button>
+      <ol class="steps small">
+        <li>Toca em <b>Adicionar ao Calendário</b>. No iPhone aparece a lista de eventos. Toca em <b>Adicionar todos</b>.</li>
+        <li>Se aparecer um ficheiro descarregado em vez da lista, abre-o (Ficheiros → Descargas) e toca em <b>Adicionar todos</b>.</li>
+        <li>Dica: no Calendário cria antes um calendário chamado <b>Plano alimentar</b> e escolhe-o ao importar. Fica mais fácil apagar tudo de uma vez.</li>
+        <li><b>Quando mudares de plano${hadOther ? ' (é o teu caso)' : ''}:</b> apaga os eventos antigos (Calendário → Calendários → ⓘ em "Plano alimentar" → Apagar calendário, ou abre um evento antigo → Apagar → <i>Apagar todos os eventos futuros</i>). Depois volta a tocar em Adicionar ao Calendário.</li>
+      </ol>
+      <p class="small muted">Se o botão não fizer nada com a app instalada no ecrã principal, abre este site no Safari e faz lá o passo 1.</p>
+    </div>`}`;
+  $('#lead').onchange = e => {
+    let v = e.target.value;
+    if (v === 'custom'){ v = prompt('Quantos minutos antes?', String(lead)); if (v === null || isNaN(+v) || +v < 0) return renderAvisos(); }
+    S.settings.lead = Math.round(+v); save(); renderAvisos(); renderHoje();
+  };
+  $('#atTime').onchange = e => { S.settings.atTime = e.target.checked; if (S.lastExport) S.lastExport.stale = true; save(); renderAvisos(); };
+}
+
+/* =========================================================
+   NAVEGAÇÃO
+   ========================================================= */
+const TITLES = { hoje: 'Hoje', plano: 'Plano', avisos: 'Avisos' };
+function go(tab){
+  $$('.view').forEach(v => v.classList.toggle('on', v.id === 'v-' + tab));
+  $$('nav.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  $('#ttl').textContent = TITLES[tab];
+  setSub(tab);
+  if (location.hash !== '#' + tab) history.replaceState(null, '', '#' + tab);
+  window.scrollTo(0, 0);
+}
+function setSub(tab){
+  const p = activePlan();
+  const d = new Date().toLocaleDateString('pt-PT', { weekday: 'long', day: 'numeric', month: 'long' });
+  $('#subttl').textContent = tab === 'hoje' ? d.charAt(0).toUpperCase() + d.slice(1) : (p ? p.name : '');
+}
+$$('nav.tabs button').forEach(b => b.onclick = () => go(b.dataset.tab));
+function renderAll(){ renderHoje(); renderPlano(); renderAvisos(); setSub((location.hash || '#hoje').slice(1)); }
+
+renderAll();
+go(TITLES[(location.hash || '').slice(1)] ? location.hash.slice(1) : 'hoje');
+setInterval(() => { if (!$('#sheet').classList.contains('on')) renderHoje(); }, 30000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) renderHoje(); });
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+</body>
+</html>
