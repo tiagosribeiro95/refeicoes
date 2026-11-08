@@ -150,7 +150,7 @@ nav.tabs button.on{color:var(--brand)}
    Tudo fica no dispositivo (localStorage). O PDF é lido
    localmente com pdf.js; nada é enviado para servidores.
    ========================================================= */
-const APP_VER = 'v4';
+const APP_VER = 'v5';
 const LS_KEY = 'refeicoes.v1';
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 
@@ -170,7 +170,14 @@ function load(){
   return { plans: [], activeId: null, settings: { lead: 15, atTime: false }, done: {} };
 }
 let S = load();
-S.settings.water = Object.assign({ on: false, every: 30, from: '08:00', to: '23:00', before: 0, after: 30 }, S.settings.water || {});
+// Garante campos novos (também depois de recuperar uma cópia de segurança).
+function normalize(){
+  S.settings = Object.assign({ lead: 15, atTime: false }, S.settings || {});
+  S.settings.water = Object.assign({ on: false, every: 30, from: '08:00', to: '23:00', before: 0, after: 30 }, S.settings.water || {});
+  if (!Array.isArray(S.settings.meds)) S.settings.meds = [{ id: 'protetor', name: 'Protetor de estômago', on: true, mode: 'first', offset: 30, time: '08:00' }];
+  S.done = S.done || {}; S.plans = S.plans || [];
+}
+normalize();
 if ('skip' in S.settings.water){ const k = +S.settings.water.skip || 0; S.settings.water.before = k; S.settings.water.after = Math.max(30, k); delete S.settings.water.skip; }
 // Horas (min do dia) dos lembretes de água: sem água `before` min antes e `after` min depois de cada refeição (mínimo 10).
 function waterSlots(plan){
@@ -179,7 +186,69 @@ function waterSlots(plan){
   for (let t = toMin(w.from); t <= toMin(w.to); t += Math.max(10, +w.every || 30)) if (!meals.some(m => t >= m ? t - m < af : m - t < bf)) out.push(t);
   return out;
 }
-function save(){ try { localStorage.setItem(LS_KEY, JSON.stringify(S)); } catch(e){ toast('Não foi possível guardar'); } }
+function save(){
+  try { localStorage.setItem(LS_KEY, JSON.stringify(S)); } catch(e){ toast('Não foi possível guardar'); }
+  if (S.plans.length) scheduleBackup();
+}
+
+/* ---------- medicação (ex.: protetor de estômago X min antes da 1.ª refeição) ---------- */
+function medTime(m, plan){
+  if (m.mode === 'fixed') return /^\d{2}:\d{2}$/.test(m.time || '') ? m.time : null;
+  const first = plan && plan.meals.filter(x => x.enabled !== false).map(x => x.time).sort()[0];
+  return first ? fromMin(toMin(first) - (+m.offset || 0)) : null;
+}
+function medReminders(plan){
+  return S.settings.meds.filter(m => m.on && m.name && medTime(m, plan))
+    .map(m => ({ time: medTime(m, plan), title: 'Tomar ' + m.name.charAt(0).toLowerCase() + m.name.slice(1),
+                 body: m.mode === 'fixed' ? '' : `${m.offset} min antes da 1.ª refeição` }));
+}
+
+/* ---------- cópia de segurança no servidor (recuperar com código) ---------- */
+const BACKUP_URL = 'https://ribeiro-engrave.com/api/refeicoes/backup/';
+const fmtCode = c => (c || '').match(/.{1,4}/g)?.join('-') || '';
+function newCode(){
+  const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return [...crypto.getRandomValues(new Uint8Array(20))].map(x => A[x % 32]).join('');
+}
+let _bk = null;
+function scheduleBackup(){ clearTimeout(_bk); _bk = setTimeout(doBackup, 2500); }
+async function doBackup(){
+  if (!S.plans.length) return;
+  if (!S.backup || !S.backup.code) S.backup = { code: newCode() };
+  const data = JSON.parse(JSON.stringify(S)); delete data.backup;
+  try {
+    const r = await fetch(BACKUP_URL + S.backup.code, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ data }) });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message || 'erro ' + r.status);
+    S.backup.at = new Date().toISOString(); S.backup.err = '';
+  } catch(e){ S.backup.err = e.message === 'Failed to fetch' ? 'sem ligação' : e.message; }
+  try { localStorage.setItem(LS_KEY, JSON.stringify(S)); } catch(e){}
+  renderPlano();
+}
+async function restoreFrom(raw){
+  const code = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (code.length !== 20) return toast('O código tem 20 letras e números', 3500);
+  toast('A recuperar…', 8000);
+  try {
+    const r = await fetch(BACKUP_URL + code); const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.message || 'erro ' + r.status);
+    const keepPush = S.push;
+    S = j.data; normalize();
+    S.push = Object.assign({ id: '', on: false }, S.push || {}, keepPush && keepPush.on ? keepPush : {});
+    S.backup = { code, at: j.updated_at };
+    save(); renderAll(); go('hoje'); syncPush();
+    toast('Plano recuperado ✅', 3000);
+  } catch(e){ toast('Não deu: ' + (e.message === 'Failed to fetch' ? 'sem ligação' : e.message), 4500); }
+}
+function askRestore(){
+  const c = prompt('Código de recuperação (20 letras/números — está na app antiga em Plano → Cópia de segurança, ou no link que guardaste):');
+  if (c) restoreFrom(c);
+}
+async function copyRestoreLink(){
+  const link = location.origin + location.pathname + '#r=' + S.backup.code;
+  const text = `Refeições — código de recuperação: ${fmtCode(S.backup.code)}\n${link}`;
+  if (navigator.share){ try { await navigator.share({ title: 'Refeições — recuperação', text }); return; } catch(e){ if (e.name === 'AbortError') return; } }
+  try { await navigator.clipboard.writeText(text); toast('Copiado — guarda nas Notas'); } catch(e){ prompt('Copia e guarda:', text); }
+}
 const activePlan = () => S.plans.find(p => p.id === S.activeId) || null;
 
 function toast(msg, ms=2200){
@@ -380,6 +449,7 @@ function buildICS(plan){
     const hhmm = fromMin(t);
     ev('w' + hhmm.replace(':', ''), hhmm, '💧 Beber água', 'Uns goles pequenos, devagar.', true);
   }
+  for (const m of medReminders(plan)) ev('med-' + m.time.replace(':', ''), m.time, '💊 ' + m.title, m.body || m.title, true);
   for (const g of (plan.general || []).filter(g => g.remind && g.time)){
     ev('g-' + g.id, g.time, `💊 ${g.text.replace(/\.$/, '')}`, g.text, true);
   }
@@ -437,7 +507,9 @@ function renderHoje(){
       <h3 style="margin:8px 0 4px">Ainda sem plano</h3>
       <p class="muted">Carrega o PDF do plano alimentar que a nutricionista te deu.</p>
       <button class="btn primary block" onclick="pickPdf()">Carregar PDF</button>
-      <p class="small muted" style="margin-top:12px">O PDF é lido só no teu iPhone. Não é enviado para lado nenhum.</p>
+      <div style="height:8px"></div>
+      <button class="btn block" onclick="askRestore()">Já tinha um plano — recuperar com código</button>
+      <p class="small muted" style="margin-top:12px">O PDF é lido só no teu iPhone.</p>
     </div>`;
     return;
   }
@@ -472,7 +544,7 @@ function renderHoje(){
       <button class="chk ${isDone ? 'on' : ''}" aria-label="Feita" onclick="toggleDone('${m.time}')">${isDone ? ICON_CHECK : ''}</button>
     </div>`;
   }).join('');
-  const gen = (plan.general || []).map(g => `<li>${esc(g.text)}</li>`).join('');
+  const gen = medReminders(plan).map(m => `<li>💊 ${esc(m.title)} às <b>${m.time}</b></li>`).join('') + (plan.general || []).map(g => `<li>${esc(g.text)}</li>`).join('');
   el.innerHTML = hero +
     `<h2>Hoje · ${done.size}/${meals.length} feitas</h2><div class="card" style="padding:4px 16px">${list}</div>` +
     (gen ? `<h2>Lembra-te</h2><div class="card"><ul style="margin:0;padding-left:18px">${gen}</ul></div>` : '') +
@@ -523,7 +595,14 @@ function renderPlano(){
           <button class="btn small danger" onclick="delPlan('${p.id}')">Apagar</button>
         </div></div>`).join('')}
     </div>` : ''}
-    <p class="small muted" style="text-align:center;margin-top:24px">Refeições ${APP_VER} · os dados ficam só neste dispositivo</p>`;
+    ${S.plans.length && S.backup && S.backup.code ? `<h2>Cópia de segurança</h2><div class="card">
+      <p class="small" style="margin-top:0">☁️ O plano e as definições são guardados automaticamente. Se apagares a app ou mudares de iPhone, recuperas tudo com este código:</p>
+      <div style="font:600 18px/1.4 ui-monospace,Menlo,monospace;letter-spacing:.04em;text-align:center;background:var(--soft);padding:10px;border-radius:10px;user-select:all">${fmtCode(S.backup.code)}</div>
+      <p class="small ${S.backup.err ? 'warn' : 'muted'}">${S.backup.err ? '⚠️ Última cópia falhou (' + esc(S.backup.err) + '). Tenta de novo quando tiveres internet.' : S.backup.at ? 'Última cópia: ' + new Date(S.backup.at).toLocaleString('pt-PT', { dateStyle: 'short', timeStyle: 'short' }) : 'A guardar…'}</p>
+      <button class="btn block" onclick="copyRestoreLink()">Guardar código (Notas, mensagem…)</button>
+    </div>` : ''}
+    ${!S.plans.length ? `<div style="text-align:center;margin-top:8px"><button class="btn small" onclick="askRestore()">Recuperar plano com código</button></div>` : ''}
+    <p class="small muted" style="text-align:center;margin-top:24px">Refeições ${APP_VER}</p>`;
 }
 function activate(id){
   const p = S.plans.find(x => x.id === id); if (!p) return;
@@ -708,7 +787,7 @@ function pushPlanPayload(plan){
       for (const n of notesFor(plan, m)) body += (body ? '\n' : '') + `${n.title}: ` + n.items.map(i => i.replace(/\.$/, '')).join('; ');
       return { time: m.time, title: summaryOf(m), body };
     }),
-    reminders: (plan.general || []).filter(g => g.remind && g.time).map(g => ({ time: g.time, title: g.text.replace(/\.$/, ''), body: '' })),
+    reminders: [...medReminders(plan), ...(plan.general || []).filter(g => g.remind && g.time).map(g => ({ time: g.time, title: g.text.replace(/\.$/, ''), body: '' }))],
     water: S.settings.water
   };
 }
@@ -766,6 +845,8 @@ async function disablePush(){
   try { const reg = await navigator.serviceWorker.ready; const s = await reg.pushManager.getSubscription(); if (s) await s.unsubscribe(); } catch(e){}
   S.push.on = false; save(); renderAvisos(); renderHoje();
 }
+function addMed(){ S.settings.meds.push({ id: uid(), name: '', on: true, mode: 'fixed', offset: 30, time: '09:00' }); save(); renderAvisos(); setTimeout(() => { const l = $$('#medsCard [data-mk=name]').pop(); l && l.focus(); }, 50); }
+function rmMed(i){ if (!confirm(`Remover "${S.settings.meds[i].name || 'medicamento'}"?`)) return; S.settings.meds.splice(i, 1); save(); renderAvisos(); renderHoje(); syncPush(); }
 const avisosAtivos = plan => S.push.on || (S.lastExport && S.lastExport.planId === plan?.id);
 
 /* =========================================================
@@ -831,6 +912,25 @@ function renderAvisos(){
       </div>
       <p class="small muted" style="margin:0">${waterSlots(plan).length} lembretes por dia${waterSlots(plan).length ? ': ' + waterSlots(plan).slice(0, 6).map(fromMin).join(', ') + (waterSlots(plan).length > 6 ? '…' : '') : ''}. Nunca lembra à hora de uma refeição.</p>` : ''}
     </div>
+    <div class="card stack" id="medsCard">
+      <b>💊 Medicação</b>
+      ${S.settings.meds.map((m, i) => `
+        <div class="edmeal" data-med="${i}" style="margin:0">
+          <div class="hd">
+            <input type="checkbox" data-mk="on" ${m.on ? 'checked' : ''} style="width:auto;flex:none" aria-label="Ativo">
+            <input type="text" data-mk="name" value="${esc(m.name)}" placeholder="Nome do medicamento">
+            <button class="x" onclick="rmMed(${i})" aria-label="Remover">×</button>
+          </div>
+          <div class="row">
+            <select data-mk="mode"><option value="first" ${m.mode !== 'fixed' ? 'selected' : ''}>Antes da 1.ª refeição</option><option value="fixed" ${m.mode === 'fixed' ? 'selected' : ''}>A uma hora fixa</option></select>
+            ${m.mode === 'fixed'
+              ? `<input type="time" data-mk="time" value="${esc(m.time || '')}">`
+              : `<select data-mk="offset">${[10, 15, 20, 30, 45, 60].map(o => `<option value="${o}" ${o === +m.offset ? 'selected' : ''}>${o} min antes</option>`).join('')}</select>`}
+          </div>
+          <div class="small muted" style="margin-top:6px">${m.on ? (medTime(m, plan) ? `Aviso todos os dias às <b>${medTime(m, plan)}</b>` : 'Carrega um plano para calcular a hora') : 'Desligado'}</div>
+        </div>`).join('')}
+      <button class="btn block" onclick="addMed()">+ Adicionar medicamento</button>
+    </div>
     ${!plan ? `<div class="card empty"><p class="muted">Carrega primeiro um plano no separador Plano.</p></div>` : `
     <div class="card">${pushCard}</div>
 
@@ -863,6 +963,13 @@ function renderAvisos(){
     $('#wFrom').onchange = e => e.target.value && wSet('from', e.target.value);
     $('#wTo').onchange = e => e.target.value && wSet('to', e.target.value);
   }
+  $$('#medsCard [data-mk]').forEach(inp => inp.onchange = () => {
+    const i = +inp.closest('[data-med]').dataset.med, k = inp.dataset.mk, m = S.settings.meds[i];
+    m[k] = inp.type === 'checkbox' ? inp.checked : (k === 'offset' ? +inp.value : inp.value.trim());
+    if (k === 'mode' && m.mode === 'fixed' && !m.time) m.time = medTime({ ...m, mode: 'first', offset: m.offset || 30 }, activePlan()) || '08:00';
+    if (S.lastExport) S.lastExport.stale = true;
+    save(); renderAvisos(); renderHoje(); syncPush();
+  });
   $('#atTime').onchange = e => { S.settings.atTime = e.target.checked; if (S.lastExport) S.lastExport.stale = true; save(); renderAvisos(); syncPush(); };
 }
 
@@ -892,6 +999,17 @@ setInterval(() => { if (!$('#sheet').classList.contains('on')) renderHoje(); }, 
 document.addEventListener('visibilitychange', () => { if (!document.hidden) renderHoje(); });
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').then(() => syncPush()).catch(() => {});
+// Pede ao iOS para não apagar os dados da app por falta de espaço.
+try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch(e){}
+// Link de recuperação: …/refeicoes/#r=CODIGO
+(() => {
+  const m = location.hash.match(/[#&]r=([A-Za-z0-9-]+)/);
+  if (!m) return;
+  history.replaceState(null, '', location.pathname + '#hoje');
+  if (S.plans.length && !confirm('Substituir o plano deste iPhone pelo da cópia de segurança?')) return;
+  restoreFrom(m[1]);
+})();
+if (S.plans.length && (!S.backup || !S.backup.at)) scheduleBackup();
 </script>
 </body>
 </html>
