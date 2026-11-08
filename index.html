@@ -150,7 +150,7 @@ nav.tabs button.on{color:var(--brand)}
    Tudo fica no dispositivo (localStorage). O PDF é lido
    localmente com pdf.js; nada é enviado para servidores.
    ========================================================= */
-const APP_VER = 'v3';
+const APP_VER = 'v4';
 const LS_KEY = 'refeicoes.v1';
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 
@@ -170,12 +170,13 @@ function load(){
   return { plans: [], activeId: null, settings: { lead: 15, atTime: false }, done: {} };
 }
 let S = load();
-S.settings.water = Object.assign({ on: false, every: 30, from: '08:00', to: '23:00', skip: 0 }, S.settings.water || {});
-// Horas (min do dia) dos lembretes de água, sem os que coincidem com refeições (±10 min ou a pausa escolhida).
+S.settings.water = Object.assign({ on: false, every: 30, from: '08:00', to: '23:00', before: 0, after: 30 }, S.settings.water || {});
+if ('skip' in S.settings.water){ const k = +S.settings.water.skip || 0; S.settings.water.before = k; S.settings.water.after = Math.max(30, k); delete S.settings.water.skip; }
+// Horas (min do dia) dos lembretes de água: sem água `before` min antes e `after` min depois de cada refeição (mínimo 10).
 function waterSlots(plan){
   const w = S.settings.water; if (!w.on || !plan) return [];
-  const meals = plan.meals.filter(m => m.enabled !== false).map(m => toMin(m.time)); const gap = Math.max(10, +w.skip || 0); const out = [];
-  for (let t = toMin(w.from); t <= toMin(w.to); t += Math.max(10, +w.every || 30)) if (!meals.some(m => Math.abs(m - t) < gap)) out.push(t);
+  const meals = plan.meals.filter(m => m.enabled !== false).map(m => toMin(m.time)); const bf = Math.max(10, +w.before || 0), af = Math.max(10, +w.after || 0); const out = [];
+  for (let t = toMin(w.from); t <= toMin(w.to); t += Math.max(10, +w.every || 30)) if (!meals.some(m => t >= m ? t - m < af : m - t < bf)) out.push(t);
   return out;
 }
 function save(){ try { localStorage.setItem(LS_KEY, JSON.stringify(S)); } catch(e){ toast('Não foi possível guardar'); } }
@@ -822,9 +823,13 @@ function renderAvisos(){
         <div><label class="f">Desde</label><input type="time" id="wFrom" value="${esc(W.from)}"></div>
         <div><label class="f">Até</label><input type="time" id="wTo" value="${esc(W.to)}"></div>
       </div>
-      <div><label class="f">Pausa perto das refeições</label>
-        <select id="wSkip">${[0, 15, 30, 45, 60].map(o => `<option value="${o}" ${o === +W.skip ? 'selected' : ''}>${o ? `${o} min antes e depois` : 'Sem pausa'}</option>`).join('')}</select></div>
-      <p class="small muted" style="margin:0">${waterSlots(plan).length} lembretes por dia${waterSlots(plan).length ? ': ' + waterSlots(plan).slice(0, 6).map(fromMin).join(', ') + (waterSlots(plan).length > 6 ? '…' : '') : ''}. Confirma com a nutricionista a pausa certa perto das refeições.</p>` : ''}
+      <div class="row">
+        <div><label class="f">Sem água antes da refeição</label>
+          <select id="wBefore">${[0, 15, 30, 45, 60].map(o => `<option value="${o}" ${o === +W.before ? 'selected' : ''}>${o ? o + ' min' : 'Sem pausa'}</option>`).join('')}</select></div>
+        <div><label class="f">Sem água depois da refeição</label>
+          <select id="wAfter">${[0, 15, 30, 45, 60, 90].map(o => `<option value="${o}" ${o === +W.after ? 'selected' : ''}>${o ? o + ' min' : 'Sem pausa'}</option>`).join('')}</select></div>
+      </div>
+      <p class="small muted" style="margin:0">${waterSlots(plan).length} lembretes por dia${waterSlots(plan).length ? ': ' + waterSlots(plan).slice(0, 6).map(fromMin).join(', ') + (waterSlots(plan).length > 6 ? '…' : '') : ''}. Nunca lembra à hora de uma refeição.</p>` : ''}
     </div>
     ${!plan ? `<div class="card empty"><p class="muted">Carrega primeiro um plano no separador Plano.</p></div>` : `
     <div class="card">${pushCard}</div>
@@ -853,7 +858,8 @@ function renderAvisos(){
   $('#wOn').onchange = e => wSet('on', e.target.checked);
   if ($('#wEvery')){
     $('#wEvery').onchange = e => wSet('every', +e.target.value);
-    $('#wSkip').onchange = e => wSet('skip', +e.target.value);
+    $('#wBefore').onchange = e => wSet('before', +e.target.value);
+    $('#wAfter').onchange = e => wSet('after', +e.target.value);
     $('#wFrom').onchange = e => e.target.value && wSet('from', e.target.value);
     $('#wTo').onchange = e => e.target.value && wSet('to', e.target.value);
   }
