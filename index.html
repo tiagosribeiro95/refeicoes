@@ -150,7 +150,7 @@ nav.tabs button.on{color:var(--brand)}
    Tudo fica no dispositivo (localStorage). O PDF é lido
    localmente com pdf.js; nada é enviado para servidores.
    ========================================================= */
-const APP_VER = 'v6';
+const APP_VER = 'v7';
 const LS_KEY = 'refeicoes.v1';
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 
@@ -178,12 +178,30 @@ function normalize(){
   S.done = S.done || {}; S.plans = S.plans || [];
 }
 normalize();
-if ('skip' in S.settings.water){ const k = +S.settings.water.skip || 0; S.settings.water.before = k; S.settings.water.after = Math.max(30, k); delete S.settings.water.skip; }
-// Horas (min do dia) dos lembretes de água: sem água `before` min antes e `after` min depois de cada refeição (mínimo 10).
+if (+S.settings.water.after < 20) S.settings.water.after = 30;
+  if ('skip' in S.settings.water){ const k = +S.settings.water.skip || 0; S.settings.water.before = k; S.settings.water.after = Math.max(30, k); delete S.settings.water.skip; }
+// Água NUNCA em cima das refeições: bloqueada desde o aviso da refeição (ou `before`, se maior) até `after` min depois (mín. 20).
+// Nas janelas livres os lembretes ficam espaçados por igual, no máximo `every` min (encurta para caber). Igual ao servidor.
 function waterSlots(plan){
   const w = S.settings.water; if (!w.on || !plan) return [];
-  const meals = plan.meals.filter(m => m.enabled !== false).map(m => toMin(m.time)); const bf = Math.max(10, +w.before || 0), af = Math.max(10, +w.after || 0); const out = [];
-  for (let t = toMin(w.from); t <= toMin(w.to); t += Math.max(10, +w.every || 30)) if (!meals.some(m => t >= m ? t - m < af : m - t < bf)) out.push(t);
+  const lead = +S.settings.lead || 0;
+  const from = toMin(w.from), to = toMin(w.to) + 1;
+  const before = Math.max(10, lead, +w.before || 0), after = Math.max(20, +w.after || 30);
+  const blocks = plan.meals.filter(m => m.enabled !== false).map(m => toMin(m.time)).map(m => [m - before, m + after]).sort((a, b) => a[0] - b[0]);
+  const free = []; let cur = from;
+  for (const [a, b] of blocks){ if (a > cur) free.push([cur, Math.min(a, to)]); cur = Math.max(cur, b); if (cur >= to) break; }
+  if (cur < to) free.push([cur, to]);
+  const rem = [...medReminders(plan), ...(plan.general || []).filter(g => g.remind && g.time)].map(r => toMin(r.time));
+  const out = [];
+  for (const [a, b] of free){
+    const len = b - a; if (len < 5) continue;
+    const n = Math.max(1, Math.ceil(len / Math.max(10, +w.every || 30)));
+    for (let i = 0; i < n; i++){
+      const t = a + Math.round(i * len / n / 5) * 5;
+      if (t >= b || rem.some(r => Math.abs(t - r) < 10) || out.includes(t)) continue;
+      out.push(t);
+    }
+  }
   return out;
 }
 function save(){
@@ -920,18 +938,18 @@ function renderAvisos(){
       </label>
       ${W.on ? `
       <div><label class="f">De quanto em quanto tempo?</label>
-        <select id="wEvery">${[15, 20, 30, 45, 60, 90, 120].map(o => `<option value="${o}" ${o === +W.every ? 'selected' : ''}>A cada ${o < 60 ? o + ' min' : (o/60).toString().replace('.', ',') + ' h'}</option>`).join('')}</select></div>
+        <select id="wEvery">${[15, 20, 30, 45, 60, 90, 120].map(o => `<option value="${o}" ${o === +W.every ? 'selected' : ''}>No máximo a cada ${o < 60 ? o + ' min' : (o/60).toString().replace('.', ',') + ' h'}</option>`).join('')}</select></div>
       <div class="row">
         <div><label class="f">Desde</label><input type="time" id="wFrom" value="${esc(W.from)}"></div>
         <div><label class="f">Até</label><input type="time" id="wTo" value="${esc(W.to)}"></div>
       </div>
       <div class="row">
         <div><label class="f">Sem água antes da refeição</label>
-          <select id="wBefore">${[0, 15, 30, 45, 60].map(o => `<option value="${o}" ${o === +W.before ? 'selected' : ''}>${o ? o + ' min' : 'Sem pausa'}</option>`).join('')}</select></div>
+          <select id="wBefore">${[0, 15, 30, 45, 60].map(o => `<option value="${o}" ${o === +W.before ? 'selected' : ''}>${o ? o + ' min' : 'Desde o aviso'}</option>`).join('')}</select></div>
         <div><label class="f">Sem água depois da refeição</label>
-          <select id="wAfter">${[0, 15, 30, 45, 60, 90].map(o => `<option value="${o}" ${o === +W.after ? 'selected' : ''}>${o ? o + ' min' : 'Sem pausa'}</option>`).join('')}</select></div>
+          <select id="wAfter">${[20, 30, 45, 60, 90].map(o => `<option value="${o}" ${o === +W.after ? 'selected' : ''}>${o} min</option>`).join('')}</select></div>
       </div>
-      <p class="small muted" style="margin:0">${waterSlots(plan).length} lembretes por dia${waterSlots(plan).length ? ': ' + waterSlots(plan).slice(0, 6).map(fromMin).join(', ') + (waterSlots(plan).length > 6 ? '…' : '') : ''}. Nunca lembra à hora de uma refeição.</p>` : ''}
+      <p class="small muted" style="margin:0">${waterSlots(plan).length} lembretes por dia${waterSlots(plan).length ? ': ' + waterSlots(plan).slice(0, 6).map(fromMin).join(', ') + (waterSlots(plan).length > 6 ? '…' : '') : ''}. Nunca lembra entre o aviso da refeição e ${Math.max(20, +W.after || 30)} min depois; nos intervalos livres encurta o tempo entre lembretes para caberem.</p>` : ''}
     </div>
     <div class="card stack" id="medsCard">
       <b>💊 Medicação</b>
