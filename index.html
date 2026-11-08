@@ -150,7 +150,7 @@ nav.tabs button.on{color:var(--brand)}
    Tudo fica no dispositivo (localStorage). O PDF é lido
    localmente com pdf.js; nada é enviado para servidores.
    ========================================================= */
-const APP_VER = 'v5';
+const APP_VER = 'v6';
 const LS_KEY = 'refeicoes.v1';
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 
@@ -529,7 +529,12 @@ function renderHoje(){
       ${notes.map(n => `<div class="notebox"><b>${esc(n.title)}:</b> ${n.items.map(esc).join(' · ')}</div>`).join('')}
     </div>`;
   }
-  if (nextW !== undefined) hero += `<div class="card" style="padding:12px 16px">💧 Próximo gole de água às <b>${fromMin(nextW)}</b> <span class="muted small">(${humanIn(nextW - nowMin)})</span></div>`;
+  const lastW = waterSlots(plan).filter(t => t <= nowMin).pop();
+  const lastWKey = lastW !== undefined ? 'w' + fromMin(lastW) : null;
+  if (nextW !== undefined || lastWKey) hero += `<div class="card row" style="padding:12px 16px">
+      <div>💧 ${nextW !== undefined ? `Próximo gole às <b>${fromMin(nextW)}</b> <span class="muted small">(${humanIn(nextW - nowMin)})</span>` : 'Sem mais lembretes de água hoje'}</div>
+      ${lastWKey && nowMin - lastW < 120 ? (isAcked(lastWKey) ? `<span class="pill" style="flex:none">✓ bebi</span>` : `<button class="btn small primary" style="flex:none" onclick="ackNow('${lastWKey}')">✓ Bebi</button>`) : ''}
+    </div>`;
   const meals = plan.meals.filter(m => m.enabled !== false);
   const list = meals.map(m => {
     const t = toMin(m.time), isDone = done.has(m.time);
@@ -544,7 +549,7 @@ function renderHoje(){
       <button class="chk ${isDone ? 'on' : ''}" aria-label="Feita" onclick="toggleDone('${m.time}')">${isDone ? ICON_CHECK : ''}</button>
     </div>`;
   }).join('');
-  const gen = medReminders(plan).map(m => `<li>💊 ${esc(m.title)} às <b>${m.time}</b></li>`).join('') + (plan.general || []).map(g => `<li>${esc(g.text)}</li>`).join('');
+  const gen = medReminders(plan).map(m => `<li>💊 ${esc(m.title)} às <b>${m.time}</b> ${isAcked('r' + m.time) ? '<span class="pill">✓ feito</span>' : toMin(m.time) <= nowMin ? `<button class="btn small" style="padding:2px 10px" onclick="ackNow('r${m.time}')">✓</button>` : ''}</li>`).join('') + (plan.general || []).map(g => `<li>${esc(g.text)}</li>`).join('');
   el.innerHTML = hero +
     `<h2>Hoje · ${done.size}/${meals.length} feitas</h2><div class="card" style="padding:4px 16px">${list}</div>` +
     (gen ? `<h2>Lembra-te</h2><div class="card"><ul style="margin:0;padding-left:18px">${gen}</ul></div>` : '') +
@@ -552,10 +557,26 @@ function renderHoje(){
 }
 function toggleDone(time){
   const k = ymd(new Date()); const s = new Set(S.done[k] || []);
-  s.has(time) ? s.delete(time) : s.add(time);
+  const undo = s.has(time);
+  undo ? s.delete(time) : s.add(time);
   S.done = { [k]: [...s] };   // guarda só o dia atual
   save(); renderHoje();
+  sendAck('m' + time, undo);
 }
+// ✓ feito → o servidor deixa de repetir o aviso (key: m08:30 refeição, w09:00 água, r08:00 medicação/lembrete).
+function sendAck(key, undo){
+  if (!S.push || !S.push.on || !S.push.id) return;
+  fetch(`https://ribeiro-engrave.com/api/refeicoes/device/${S.push.id}/ack`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key, undo: !!undo }) }).catch(() => {});
+}
+function ackLocal(key){
+  if (!key) return;
+  if (key[0] === 'm'){ const k = ymd(new Date()), s = new Set(S.done[k] || []); s.add(key.slice(1)); S.done = { [k]: [...s] }; }
+  else { const k = ymd(new Date()); S.acks = S.acks && S.acks.date === k ? S.acks : { date: k, keys: [] }; if (!S.acks.keys.includes(key)) S.acks.keys.push(key); }
+  save(); renderHoje(); go('hoje');
+  toast('✓ Feito — não volta a avisar', 2500);
+}
+function ackNow(key){ sendAck(key); ackLocal(key); }
+const isAcked = key => S.acks && S.acks.date === ymd(new Date()) && S.acks.keys.includes(key);
 
 /* =========================================================
    VISTA: PLANO
@@ -1001,6 +1022,14 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) rend
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').then(() => syncPush()).catch(() => {});
 // Pede ao iOS para não apagar os dados da app por falta de espaço.
 try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch(e){}
+// Vindo de uma notificação tocada: …/#ok=m08:30 (o service worker já avisou o servidor).
+function handleOkHash(){
+  const m = location.hash.match(/[#&]ok=([^&]+)/);
+  if (m){ history.replaceState(null, '', location.pathname + '#hoje'); ackLocal(decodeURIComponent(m[1])); }
+}
+handleOkHash();
+window.addEventListener('hashchange', handleOkHash);
+if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e => { if (e.data && e.data.type === 'ack') ackLocal(e.data.key); });
 // Link de recuperação: …/refeicoes/#r=CODIGO
 (() => {
   const m = location.hash.match(/[#&]r=([A-Za-z0-9-]+)/);

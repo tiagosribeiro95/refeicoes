@@ -1,5 +1,5 @@
 // Cache da app para funcionar offline. Mudar CACHE ao alterar ficheiros.
-const CACHE = 'ref-v5';
+const CACHE = 'ref-v6';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './apple-touch-icon.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)));
@@ -23,20 +23,31 @@ self.addEventListener('fetch', e => {
   }
 });
 
-// Notificações push (enviadas pelo servidor à hora de cada aviso).
+// Notificações push (enviadas pelo servidor). Tocar na notificação = ✓ feito (para as repetições de 5 em 5 min).
 self.addEventListener('push', e => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch { d = { title: 'Refeições', body: e.data && e.data.text() }; }
   e.waitUntil(self.registration.showNotification(d.title || 'Refeições', {
     body: d.body || '', tag: d.tag || undefined, renotify: true,
-    icon: 'icon-192.png', badge: 'icon-192.png', data: { url: d.url || './#hoje' }
+    icon: 'icon-192.png', badge: 'icon-192.png',
+    actions: d.ack ? [{ action: 'done', title: '✓ Feito' }] : [],
+    data: { url: d.url || './#hoje', ack: d.ack || null }
   }));
 });
+function sendAck(ack){
+  if (!ack || !ack.url) return Promise.resolve();
+  return fetch(ack.url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: ack.key }), keepalive: true }).catch(() => {});
+}
 self.addEventListener('notificationclick', e => {
   e.notification.close();
-  const url = new URL(e.notification.data?.url || './#hoje', self.registration.scope).href;
-  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(cs => {
-    for (const c of cs) if ('focus' in c) { c.navigate && c.navigate(url); return c.focus(); }
-    return self.clients.openWindow(url);
-  }));
+  const ack = e.notification.data?.ack;
+  if (e.action === 'done'){ e.waitUntil(sendAck(ack)); return; }
+  const url = new URL(ack ? './#ok=' + encodeURIComponent(ack.key) : (e.notification.data?.url || './#hoje'), self.registration.scope).href;
+  e.waitUntil(Promise.all([
+    sendAck(ack),
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(cs => {
+      for (const c of cs) if ('focus' in c){ c.postMessage({ type: 'ack', key: ack && ack.key }); return c.focus(); }
+      return self.clients.openWindow(url);
+    })
+  ]));
 });
