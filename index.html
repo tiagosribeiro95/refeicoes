@@ -150,7 +150,7 @@ nav.tabs button.on{color:var(--brand)}
    Tudo fica no dispositivo (localStorage). O PDF é lido
    localmente com pdf.js; nada é enviado para servidores.
    ========================================================= */
-const APP_VER = 'v1';
+const APP_VER = 'v2';
 const LS_KEY = 'refeicoes.v1';
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 
@@ -461,7 +461,7 @@ function renderHoje(){
   el.innerHTML = hero +
     `<h2>Hoje · ${done.size}/${meals.length} feitas</h2><div class="card" style="padding:4px 16px">${list}</div>` +
     (gen ? `<h2>Lembra-te</h2><div class="card"><ul style="margin:0;padding-left:18px">${gen}</ul></div>` : '') +
-    (!S.lastExport || S.lastExport.planId !== plan.id ? `<div class="card"><b>🔔 Avisos ainda não ativados</b><p class="small muted" style="margin:4px 0 10px">Adiciona o plano ao Calendário do iPhone para receberes os avisos antes de cada refeição, mesmo com a app fechada.</p><button class="btn primary block" onclick="go('avisos')">Ativar avisos</button></div>` : '');
+    (!avisosAtivos(plan) ? `<div class="card"><b>🔔 Avisos ainda não ativados</b><p class="small muted" style="margin:4px 0 10px">Ativa as notificações para receberes um aviso antes de cada refeição, com o que comer, mesmo com a app fechada.</p><button class="btn primary block" onclick="go('avisos')">Ativar avisos</button></div>` : '');
 }
 function toggleDone(time){
   const k = ymd(new Date()); const s = new Set(S.done[k] || []);
@@ -514,7 +514,7 @@ function activate(id){
   const p = S.plans.find(x => x.id === id); if (!p) return;
   if (!confirm(`Voltar a usar "${p.name}"? Depois atualiza os avisos no separador Avisos.`)) return;
   const prev = activePlan(); if (prev && !prev.end) prev.end = ymd(new Date(Date.now() - 864e5));
-  p.end = ''; p.start = ymd(new Date()); S.activeId = id; save(); renderAll(); go('avisos');
+  p.end = ''; p.start = ymd(new Date()); S.activeId = id; save(); renderAll(); syncPush(); if (!S.push.on) go('avisos');
 }
 function delPlan(id){
   const p = S.plans.find(x => x.id === id);
@@ -666,10 +666,91 @@ $('#edSave').onclick = () => {
     S.plans = S.plans.map(p => p.id === d.id ? d : p);
     if (S.lastExport && S.lastExport.planId === d.id) S.lastExport.stale = true;
   }
-  save(); closeEditor(); renderAll();
-  if (draftIsNew){ toast('Plano ativado! Agora ativa os avisos.', 3000); go('avisos'); }
-  else toast(S.lastExport && S.lastExport.stale ? 'Guardado — atualiza os avisos no Calendário' : 'Guardado');
+  save(); closeEditor(); renderAll(); syncPush();
+  if (draftIsNew){ toast(S.push.on ? 'Plano ativado! As notificações já seguem o plano novo.' : 'Plano ativado! Agora ativa os avisos.', 3500); if (!S.push.on) go('avisos'); }
+  else toast(!S.push.on && S.lastExport && S.lastExport.stale ? 'Guardado — atualiza os avisos no Calendário' : 'Guardado');
 };
+
+/* =========================================================
+   NOTIFICAÇÕES PUSH (servidor do Ribeiro Engrave)
+   O servidor guarda a subscrição deste iPhone + horas/itens do plano ativo e
+   envia o aviso à hora certa. O id aleatório do dispositivo funciona como chave.
+   ========================================================= */
+const PUSH_API = 'https://ribeiro-engrave.com/api/refeicoes';
+S.push = S.push || { id: '', on: false };
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+function b64ToU8(b64){
+  const s = atob((b64 + '='.repeat((4 - b64.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(s, c => c.charCodeAt(0));
+}
+function pushPlanPayload(plan){
+  return {
+    start: plan.start, end: plan.end || null,
+    meals: plan.meals.filter(m => m.enabled !== false).map(m => {
+      let body = m.items.length > 1 ? m.items.map(i => '• ' + i).join('\n') : '';
+      for (const n of notesFor(plan, m)) body += (body ? '\n' : '') + `${n.title}: ` + n.items.map(i => i.replace(/\.$/, '')).join('; ');
+      return { time: m.time, title: summaryOf(m), body };
+    }),
+    reminders: (plan.general || []).filter(g => g.remind && g.time).map(g => ({ time: g.time, title: g.text.replace(/\.$/, ''), body: '' }))
+  };
+}
+async function pushApi(path, opts = {}){
+  const r = await fetch(PUSH_API + path, { ...opts, headers: { 'content-type': 'application/json' } });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.message || ('erro ' + r.status));
+  return j;
+}
+async function syncPush(sub, throwErr){
+  if (!S.push.on || !S.push.id) return;
+  const plan = activePlan(); if (!plan) return;
+  try {
+    if (!sub){ const reg = await navigator.serviceWorker.ready; sub = await reg.pushManager.getSubscription(); }
+    if (!sub){ S.push.on = false; save(); renderAvisos(); renderHoje(); return; }
+    await pushApi(`/device/${S.push.id}`, { method: 'PUT', body: JSON.stringify({
+      subscription: sub.toJSON(), plan: pushPlanPayload(plan), lead: +S.settings.lead || 0,
+      atTime: !!S.settings.atTime, tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Lisbon' }) });
+    S.push.syncedAt = new Date().toISOString(); S.push.err = ''; save();
+  } catch(e){
+    S.push.err = e.message; save();
+    if (throwErr) throw e;
+  }
+  if ($('#v-avisos').classList.contains('on')) renderAvisos();
+}
+async function enablePush(){
+  if (!pushSupported()) return toast(isIOS ? 'Primeiro instala a app no ecrã principal e abre-a pelo ícone.' : 'Este browser não suporta notificações.', 4500);
+  const btn = $('#pushBtn'); if (btn){ btn.disabled = true; btn.innerHTML = '<span class="spin"></span> A ativar…'; }
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') throw new Error('não autorizaste as notificações. Ativa em Definições → Notificações → Refeições');
+    const cfg = await (await fetch(PUSH_API + '/config')).json();
+    if (!cfg.enabled) throw new Error('o servidor ainda não tem as notificações configuradas');
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToU8(cfg.publicKey) });
+    if (!S.push.id) S.push.id = 'd' + uid() + uid() + uid();
+    S.push.on = true; save();
+    await syncPush(sub, true);
+    await pushApi(`/device/${S.push.id}/test`, { method: 'POST' });
+    toast('Notificações ativas! Vais receber uma de teste.', 3500);
+  } catch(e){
+    S.push.on = false; save();
+    toast('Não deu: ' + e.message, 5000);
+  }
+  renderAvisos(); renderHoje();
+}
+async function testPush(){
+  try { await syncPush(null, true); await pushApi(`/device/${S.push.id}/test`, { method: 'POST' }); toast('Enviada — deve chegar em segundos'); }
+  catch(e){ toast('Erro: ' + e.message, 4000); }
+}
+async function disablePush(){
+  if (!confirm('Desligar as notificações neste iPhone?')) return;
+  try { await pushApi(`/device/${S.push.id}`, { method: 'DELETE' }); } catch(e){}
+  try { const reg = await navigator.serviceWorker.ready; const s = await reg.pushManager.getSubscription(); if (s) await s.unsubscribe(); } catch(e){}
+  S.push.on = false; save(); renderAvisos(); renderHoje();
+}
+const avisosAtivos = plan => S.push.on || (S.lastExport && S.lastExport.planId === plan?.id);
 
 /* =========================================================
    VISTA: AVISOS
@@ -683,6 +764,24 @@ function renderAvisos(){
   const exported = S.lastExport && S.lastExport.planId === plan?.id;
   const stale = exported && (S.lastExport.stale || S.lastExport.lead !== lead);
   const hadOther = S.plans.length > 1;
+  const ex = plan && plan.meals[0];
+  let pushCard;
+  if (S.push.on){
+    pushCard = `<p style="margin-top:0"><b>✅ Notificações ativas neste iPhone</b></p>
+      <p class="small muted">Recebes um aviso ${lead ? lead + ' min antes de cada refeição' : 'à hora de cada refeição'}${S.settings.atTime && lead ? ' e outro à hora' : ''}, com o que comer. Quando mudas o plano ou o tempo do aviso, a app atualiza tudo sozinha.</p>
+      ${S.push.err ? `<p class="small warn">⚠️ Última atualização falhou (${esc(S.push.err)}). Toca em Enviar teste para tentar de novo.</p>` : S.push.syncedAt ? `<p class="small muted">Atualizado ${new Date(S.push.syncedAt).toLocaleString('pt-PT', { dateStyle: 'short', timeStyle: 'short' })}</p>` : ''}
+      <div class="row"><button class="btn" onclick="testPush()">Enviar teste</button><button class="btn danger" onclick="disablePush()">Desligar</button></div>`;
+  } else if (isIOS && !isStandalone()){
+    pushCard = `<p style="margin-top:0"><b>🔔 Notificações da app</b></p>
+      <p class="small">No iPhone, as notificações só funcionam com a app instalada:</p>
+      <ol class="steps small"><li>No Safari, toca em <b>Partilhar</b> (quadrado com seta).</li><li><b>Adicionar ao ecrã principal</b>.</li><li>Abre a app <b>pelo ícone</b> e volta aqui a Avisos.</li></ol>
+      <p class="small muted">Atenção: a app instalada começa vazia. Carrega lá o PDF.</p>`;
+  } else {
+    pushCard = `<p style="margin-top:0"><b>🔔 Notificações da app</b></p>
+      <p class="small muted">Recebe um aviso ${lead ? lead + ' min antes de cada refeição' : 'à hora de cada refeição'}, com o que comer, mesmo com a app fechada.</p>
+      ${ex ? `<p class="small" style="background:var(--soft);padding:10px 12px;border-radius:10px">Exemplo:<br><b>🍽️ Refeição daqui a ${lead} min (${ex.time})</b><br>${esc(summaryOf(ex))}</p>` : ''}
+      <button class="btn primary block" id="pushBtn" onclick="enablePush()" ${plan ? '' : 'disabled'}>Ativar notificações</button>`;
+  }
   el.innerHTML = `
     <div class="card stack">
       <div>
@@ -697,29 +796,29 @@ function renderAvisos(){
     </div>
 
     ${!plan ? `<div class="card empty"><p class="muted">Carrega primeiro um plano no separador Plano.</p></div>` : `
-    <div class="card">
-      ${exported && !stale ? `<p style="margin-top:0">✅ Avisos adicionados ao Calendário em ${new Date(S.lastExport.at).toLocaleDateString('pt-PT')}.</p>` : ''}
-      ${stale ? `<p class="warn" style="margin-top:0"><b>⚠️ Mudaste o plano ou o tempo do aviso.</b> Volta a adicionar ao Calendário (e apaga os antigos, ver passo 4).</p>` : ''}
-      <p style="margin-top:0"><b>Como funcionam os avisos</b></p>
-      <p class="small muted">O iPhone não deixa as webapps agendar notificações. Por isso, a app cria um evento diário por refeição no <b>Calendário</b> do iPhone, com o alarme ${lead ? lead + ' min antes' : 'à hora'}. Assim recebes o aviso com o que comer mesmo com a app fechada e sem internet.</p>
-      <p class="small" style="background:var(--soft);padding:10px 12px;border-radius:10px">Exemplo de aviso:<br><b>🍽️ ${plan.meals[0]?.time} · ${esc(summaryOf(plan.meals[0] || { items: [] }))}</b></p>
-      <button class="btn primary block" onclick="exportICS('download')">📅 Adicionar ao Calendário</button>
+    <div class="card">${pushCard}</div>
+
+    <details class="card" ${exported ? 'open' : ''}>
+      <summary><b>Alternativa: avisos no Calendário do iPhone</b></summary>
+      ${exported && !stale ? `<p>✅ Adicionados ao Calendário em ${new Date(S.lastExport.at).toLocaleDateString('pt-PT')}.</p>` : ''}
+      ${stale ? `<p class="warn"><b>⚠️ Mudaste o plano ou o tempo do aviso.</b> Volta a adicionar ao Calendário (e apaga os antigos, ver passo 4).</p>` : ''}
+      <p class="small muted">Funciona sem internet e sem servidor. Cria um evento diário por refeição no Calendário, com alarme ${lead ? lead + ' min antes' : 'à hora'}.${S.push.on ? ' <b>Se já tens as notificações da app ativas, não precisas disto, senão recebes os avisos a dobrar.</b>' : ''}</p>
+      <button class="btn block" onclick="exportICS('download')">📅 Adicionar ao Calendário</button>
       <div style="height:8px"></div>
       <button class="btn block" onclick="exportICS('share')">Partilhar ficheiro…</button>
       <ol class="steps small">
         <li>Toca em <b>Adicionar ao Calendário</b>. No iPhone aparece a lista de eventos. Toca em <b>Adicionar todos</b>.</li>
         <li>Se aparecer um ficheiro descarregado em vez da lista, abre-o (Ficheiros → Descargas) e toca em <b>Adicionar todos</b>.</li>
-        <li>Dica: no Calendário cria antes um calendário chamado <b>Plano alimentar</b> e escolhe-o ao importar. Fica mais fácil apagar tudo de uma vez.</li>
-        <li><b>Quando mudares de plano${hadOther ? ' (é o teu caso)' : ''}:</b> apaga os eventos antigos (Calendário → Calendários → ⓘ em "Plano alimentar" → Apagar calendário, ou abre um evento antigo → Apagar → <i>Apagar todos os eventos futuros</i>). Depois volta a tocar em Adicionar ao Calendário.</li>
+        <li>Dica: no Calendário cria antes um calendário chamado <b>Plano alimentar</b> e escolhe-o ao importar.</li>
+        <li><b>Quando mudares de plano${hadOther ? ' (é o teu caso)' : ''}:</b> apaga os eventos antigos (Calendário → Calendários → ⓘ em "Plano alimentar" → Apagar calendário). Depois volta a adicionar.</li>
       </ol>
-      <p class="small muted">Se o botão não fizer nada com a app instalada no ecrã principal, abre este site no Safari e faz lá o passo 1.</p>
-    </div>`}`;
+    </details>`}`;
   $('#lead').onchange = e => {
     let v = e.target.value;
     if (v === 'custom'){ v = prompt('Quantos minutos antes?', String(lead)); if (v === null || isNaN(+v) || +v < 0) return renderAvisos(); }
-    S.settings.lead = Math.round(+v); save(); renderAvisos(); renderHoje();
+    S.settings.lead = Math.round(+v); save(); renderAvisos(); renderHoje(); syncPush();
   };
-  $('#atTime').onchange = e => { S.settings.atTime = e.target.checked; if (S.lastExport) S.lastExport.stale = true; save(); renderAvisos(); };
+  $('#atTime').onchange = e => { S.settings.atTime = e.target.checked; if (S.lastExport) S.lastExport.stale = true; save(); renderAvisos(); syncPush(); };
 }
 
 /* =========================================================
@@ -747,7 +846,7 @@ go(TITLES[(location.hash || '').slice(1)] ? location.hash.slice(1) : 'hoje');
 setInterval(() => { if (!$('#sheet').classList.contains('on')) renderHoje(); }, 30000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) renderHoje(); });
 
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').then(() => syncPush()).catch(() => {});
 </script>
 </body>
 </html>
