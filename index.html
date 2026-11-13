@@ -150,7 +150,7 @@ nav.tabs button.on{color:var(--brand)}
    Tudo fica no dispositivo (localStorage). O PDF é lido
    localmente com pdf.js; nada é enviado para servidores.
    ========================================================= */
-const APP_VER = 'v7';
+const APP_VER = 'v8';
 const LS_KEY = 'refeicoes.v1';
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 
@@ -176,6 +176,13 @@ function normalize(){
   S.settings.water = Object.assign({ on: false, every: 30, from: '08:00', to: '23:00', before: 0, after: 30 }, S.settings.water || {});
   if (!Array.isArray(S.settings.meds)) S.settings.meds = [{ id: 'protetor', name: 'Protetor de estômago', on: true, mode: 'first', offset: 30, time: '08:00' }];
   S.done = S.done || {}; S.plans = S.plans || [];
+  // Vitaminas/minerais: passam a lembrete de medicação "com a 1.ª refeição" (com ✓); o aviso geral antigo das 09:00 é desligado.
+  if (!S.migVit){
+    if (!S.settings.meds.some(m => /vitamin|suplement|mineral/i.test(m.name)))
+      S.settings.meds.push({ id: 'vitaminas', name: 'Vitaminas e minerais', on: true, mode: 'first', offset: 0, time: '08:30' });
+    for (const p of S.plans) for (const g of p.general || []) if (/suplement|vitamin/i.test(g.text)){ g.remind = false; g.hidden = true; }
+    S.migVit = true;
+  }
 }
 normalize();
 if (+S.settings.water.after < 20) S.settings.water.after = 30;
@@ -218,7 +225,7 @@ function medTime(m, plan){
 function medReminders(plan){
   return S.settings.meds.filter(m => m.on && m.name && medTime(m, plan))
     .map(m => ({ time: medTime(m, plan), title: 'Tomar ' + m.name.charAt(0).toLowerCase() + m.name.slice(1),
-                 body: m.mode === 'fixed' ? '' : `${m.offset} min antes da 1.ª refeição` }));
+                 body: m.mode === 'fixed' ? '' : +m.offset ? `${m.offset} min antes da 1.ª refeição` : 'Com a 1.ª refeição' }));
 }
 
 /* ---------- cópia de segurança no servidor (recuperar com código) ---------- */
@@ -388,7 +395,10 @@ function parsePlan(lines){
   plan.title = pre.filter(l => !/^plano/i.test(l)).join(' ') || '';
   resolveRefs(plan);
   plan.meals.sort((a, b) => toMin(a.time) - toMin(b.time));
-  plan.general = plan.general.map(text => ({ id: uid(), text, time: /suplement|vitamin|medica/i.test(text) ? '09:00' : '', remind: /suplement|vitamin|medica/i.test(text) }));
+  plan.general = plan.general.map(text => {
+    const vit = /suplement|vitamin/i.test(text);
+    return { id: uid(), text, time: !vit && /medica/i.test(text) ? '09:00' : '', remind: !vit && /medica/i.test(text), hidden: vit };
+  });
   return plan;
 }
 
@@ -567,7 +577,7 @@ function renderHoje(){
       <button class="chk ${isDone ? 'on' : ''}" aria-label="Feita" onclick="toggleDone('${m.time}')">${isDone ? ICON_CHECK : ''}</button>
     </div>`;
   }).join('');
-  const gen = medReminders(plan).map(m => `<li>💊 ${esc(m.title)} às <b>${m.time}</b> ${isAcked('r' + m.time) ? '<span class="pill">✓ feito</span>' : toMin(m.time) <= nowMin ? `<button class="btn small" style="padding:2px 10px" onclick="ackNow('r${m.time}')">✓</button>` : ''}</li>`).join('') + (plan.general || []).map(g => `<li>${esc(g.text)}</li>`).join('');
+  const gen = medReminders(plan).map(m => `<li>💊 ${esc(m.title)} às <b>${m.time}</b> ${isAcked('r' + m.time) ? '<span class="pill">✓ feito</span>' : toMin(m.time) <= nowMin ? `<button class="btn small" style="padding:2px 10px" onclick="ackNow('r${m.time}')">✓</button>` : ''}</li>`).join('') + (plan.general || []).filter(g => !g.hidden).map(g => `<li>${esc(g.text)}</li>`).join('');
   el.innerHTML = hero +
     `<h2>Hoje · ${done.size}/${meals.length} feitas</h2><div class="card" style="padding:4px 16px">${list}</div>` +
     (gen ? `<h2>Lembra-te</h2><div class="card"><ul style="margin:0;padding-left:18px">${gen}</ul></div>` : '') +
@@ -964,7 +974,7 @@ function renderAvisos(){
             <select data-mk="mode"><option value="first" ${m.mode !== 'fixed' ? 'selected' : ''}>Antes da 1.ª refeição</option><option value="fixed" ${m.mode === 'fixed' ? 'selected' : ''}>A uma hora fixa</option></select>
             ${m.mode === 'fixed'
               ? `<input type="time" data-mk="time" value="${esc(m.time || '')}">`
-              : `<select data-mk="offset">${[10, 15, 20, 30, 45, 60].map(o => `<option value="${o}" ${o === +m.offset ? 'selected' : ''}>${o} min antes</option>`).join('')}</select>`}
+              : `<select data-mk="offset">${[0, 10, 15, 20, 30, 45, 60].map(o => `<option value="${o}" ${o === +m.offset ? 'selected' : ''}>${o ? o + ' min antes' : 'Com a refeição'}</option>`).join('')}</select>`}
           </div>
           <div class="small muted" style="margin-top:6px">${m.on ? (medTime(m, plan) ? `Aviso todos os dias às <b>${medTime(m, plan)}</b>` : 'Carrega um plano para calcular a hora') : 'Desligado'}</div>
         </div>`).join('')}

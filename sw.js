@@ -1,5 +1,5 @@
 // Cache da app para funcionar offline. Mudar CACHE ao alterar ficheiros.
-const CACHE = 'ref-v7';
+const CACHE = 'ref-v8';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './apple-touch-icon.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)));
