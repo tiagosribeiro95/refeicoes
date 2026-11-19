@@ -418,7 +418,7 @@ function parsePlan(input){
     addItem(cleanItem(line));
   }
 
-  // Cabeçalho: 1.º bloco = título; os seguintes (ex.: "Até dia 04/12… consistência mole") = textos gerais.
+  // Cabeçalho: 1.º bloco = título; os seguintes (ex.: uma regra com data) = textos gerais.
   const titleBits = [];
   pre.forEach((b, i) => {
     const txt = cleanItem(b.join(' '));
@@ -571,7 +571,7 @@ function humanIn(min){
   return 'daqui a ' + (h ? `${h} h` + (m ? ` ${m} min` : '') : `${m} min`);
 }
 function itemsHTML(items){ return '<ul>' + items.map(i => `<li>${esc(i)}</li>`).join('') + '</ul>'; }
-// Dicas/instruções da refeição (ex.: "Deve demolhar o pão…") — aparecem na app, não no resumo do aviso.
+// Dicas/instruções da refeição (ex.: modo de preparação) — aparecem na app, não no resumo do aviso.
 function tipsHTML(m, open){
   const t = (m.tips || []).filter(Boolean); if (!t.length) return '';
   return `<details class="note" ${open ? 'open' : ''}><summary>Como preparar / dicas (${t.length})</summary>${itemsHTML(t)}</details>`;
