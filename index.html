@@ -59,6 +59,10 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute
 details.note{margin-top:6px}
 details.note summary{cursor:pointer;color:var(--brand);font-size:14px}
 details.note ul{font-size:14px;margin:6px 0 0}
+.opts{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.opts .btn{font-weight:500;text-align:left}
+.hero .opts .btn{background:rgba(255,255,255,.18);color:inherit}.hero .opts .btn.primary{background:var(--brand-ink);color:var(--brand)}
+.sugg{font-weight:600}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:none;border-radius:12px;padding:12px 16px;font-weight:600;cursor:pointer;background:var(--soft);color:var(--brand);text-decoration:none}
 .btn.primary{background:var(--brand);color:var(--brand-ink)}
 .btn.block{width:100%}
@@ -150,7 +154,7 @@ nav.tabs button.on{color:var(--brand)}
    Tudo fica no dispositivo (localStorage). O PDF é lido
    localmente com pdf.js; nada é enviado para servidores.
    ========================================================= */
-const APP_VER = 'v9';
+const APP_VER = 'v10';
 const LS_KEY = 'refeicoes.v1';
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 
@@ -576,6 +580,61 @@ function tipsHTML(m, open){
   const t = (m.tips || []).filter(Boolean); if (!t.length) return '';
   return `<details class="note" ${open ? 'open' : ''}><summary>Como preparar / dicas (${t.length})</summary>${itemsHTML(t)}</details>`;
 }
+/* ---------- opções ("A OU B", listas de fruta) → sugestão do dia ---------- */
+// Uma opção nova só começa se a parte depois de "ou" começar por quantidade/maiúscula ("5 bolachas", "Torrada");
+// senão junta à anterior ("carne ou peixe", "arroz ou massa", "de centeio ou de mistura").
+const OPT_START = /^(\d|um\b|uma\b|duas?\b|dois\b|tr[eê]s\b|quatro\b|cinco\b|seis\b|meia?\b|[A-ZÁÉÍÓÚÂÊÔÃÕÇ])/;
+function parseOptions(item){
+  let prefix = '', body = item;
+  const pm = item.match(/^([A-ZÁÉÍÓÚ][a-zà-ú]{2,11}): (.+)$/);
+  if (pm){ prefix = pm[1]; body = pm[2]; }
+  const fm = body.match(/^(.*?):\s*((?:\d+\s*g\s*[–-]\s*[^;]+;?\s*){2,})$/i);       // "Uma peça de fruta: 100g – maçã, pêra; 200g – …"
+  if (fm){
+    const opts = [];
+    for (const grp of fm[2].split(';')){
+      const g = grp.match(/(\d+\s*g)\s*[–-]\s*(.+)/i); if (!g) continue;
+      for (const f of g[2].split(',').map(x => x.trim().replace(/\.$/, '')).filter(Boolean)) opts.push(`${g[1].replace(/\s+/g, '')} de ${f}`);
+    }
+    if (opts.length > 1) return { prefix, head: fm[1].trim(), options: opts };
+  }
+  const parts = body.split(/\s+ou\s+/i);
+  if (parts.length < 2) return null;
+  const merged = [parts[0]];
+  for (const pt of parts.slice(1)){ if (OPT_START.test(pt)) merged.push(pt); else merged[merged.length - 1] += ' ou ' + pt; }
+  if (merged.length < 2) return null;
+  return { prefix, head: '', options: merged.map(o => o.replace(/[;.]\s*$/, '').trim()) };
+}
+const optText = (o, k) => (o.prefix ? o.prefix + ': ' : '') + (o.head ? o.head.replace(/:$/, '') + ' — ' : '') + o.options[k];
+const dayNum = d => Math.floor(new Date(d + 'T12:00:00').getTime() / 864e5);
+const hashStr = t => [...t].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
+function chosenIdx(date, meal, i, n){
+  const c = S.choices && S.choices[date] && S.choices[date][meal.time] && S.choices[date][meal.time][i];
+  if (c != null && c < n) return c;
+  return (dayNum(date) + hashStr(meal.time + ':' + i)) % n;      // roda todos os dias; refeições diferentes ≠ escolhas
+}
+// Itens da refeição para um dia: os que têm opções ficam com a escolha do dia.
+function mealForDay(meal, date){
+  return meal.items.map((it, i) => {
+    const o = parseOptions(it); if (!o) return { text: it };
+    const k = chosenIdx(date, meal, i, o.options.length);
+    return { text: optText(o, k), o, i, k };
+  });
+}
+const hasOptions = m => m.items.some(i => parseOptions(i));
+function dayItemsHTML(m, date){
+  return '<ul>' + mealForDay(m, date).map(x => !x.o ? `<li>${esc(x.text)}</li>` :
+    `<li><span class="sugg">${esc(x.text)}</span>
+      <details class="note"><summary>Trocar (${x.o.options.length} opções)</summary><div class="opts">${x.o.options.map((op, k) =>
+        `<button class="btn small ${k === x.k ? 'primary' : ''}" onclick="setChoice('${m.time}',${x.i},${k},'${date}')">${esc(op)}</button>`).join('')}</div></details></li>`).join('') + '</ul>';
+}
+function setChoice(time, i, k, d){
+  d = d || ymd(new Date());
+  const keep = {}; for (const [day, v] of Object.entries(S.choices || {})) if (day >= ymd(new Date())) keep[day] = v;   // só hoje/futuro
+  S.choices = keep; S.choices[d] ||= {};
+  (S.choices[d][time] ||= {})[i] = k;
+  save(); renderHoje(); syncPush();
+  toast('Escolhido para hoje ✓');
+}
 const mealLabel = m => m.name ? `<div class="small" style="font-weight:600;margin-bottom:2px">${esc(m.name)}</div>` : '';
 
 function renderHoje(){
@@ -605,7 +664,7 @@ function renderHoje(){
       <div class="lbl">Próxima refeição${nx.tomorrow ? ' · amanhã' : ''}</div>
       <div class="time">${nx.meal.time}${nx.meal.name ? ` <span style="font-size:22px;font-weight:600">${esc(nx.meal.name)}</span>` : ''}</div>
       <div class="count">${humanIn(nx.inMin)} · aviso às ${warnAt}</div>
-      ${itemsHTML(nx.meal.items)}
+      ${dayItemsHTML(nx.meal, nx.tomorrow ? ymd(new Date(now.getTime() + 864e5)) : ymd(now))}
       ${(nx.meal.tips || []).length ? `<div class="notebox">${nx.meal.tips.map(esc).join('<br>')}</div>` : ''}
       ${notes.map(n => `<div class="notebox"><b>${esc(n.title)}:</b> ${n.items.map(esc).join(' · ')}</div>`).join('')}
     </div>`;
@@ -623,7 +682,7 @@ function renderHoje(){
     const notes = notesFor(plan, m);
     return `<div class="meal ${cls}">
       <div class="t">${m.time}</div>
-      <div class="body">${mealLabel(m)}${m.items.length ? itemsHTML(m.items) : '<div class="small warn">Sem itens — edita o plano</div>'}
+      <div class="body">${mealLabel(m)}${m.items.length ? dayItemsHTML(m, today) : '<div class="small warn">Sem itens — edita o plano</div>'}
         ${m.sameAs ? `<div class="sub">Igual à refeição das ${m.sameAs}</div>` : ''}
         ${tipsHTML(m)}
         ${notes.map(n => `<details class="note"><summary>${esc(n.title)}</summary>${itemsHTML(n.items)}</details>`).join('')}
@@ -895,7 +954,16 @@ function pushPlanPayload(plan){
     meals: plan.meals.filter(m => m.enabled !== false).map(m => {
       let body = m.name || m.items.length > 1 ? m.items.map(i => '• ' + i).join('\n') : '';
       for (const n of notesFor(plan, m)) body += (body ? '\n' : '') + `${n.title}: ` + n.items.map(i => i.replace(/\.$/, '')).join('; ');
-      return { time: m.time, title: m.name || summaryOf(m), body };
+      const out = { time: m.time, title: m.name || summaryOf(m), body };
+      // Sugestão de cada dia (próximos 14) para refeições com opções — o servidor usa a do dia no aviso.
+      if (hasOptions(m)){
+        out.sugg = {};
+        for (let d = 0; d < 14; d++){
+          const day = ymd(new Date(Date.now() + d * 864e5));
+          out.sugg[day] = mealForDay(m, day).map(x => '• ' + x.text).join('\n') + '\n(outras opções na app)';
+        }
+      }
+      return out;
     }),
     reminders: [...medReminders(plan), ...(plan.general || []).filter(g => g.remind && g.time).map(g => ({ time: g.time, title: g.text.replace(/\.$/, ''), body: '' }))],
     water: S.settings.water
