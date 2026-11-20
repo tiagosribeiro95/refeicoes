@@ -154,7 +154,7 @@ nav.tabs button.on{color:var(--brand)}
    Tudo fica no dispositivo (localStorage). O PDF é lido
    localmente com pdf.js; nada é enviado para servidores.
    ========================================================= */
-const APP_VER = 'v10';
+const APP_VER = 'v11';
 const LS_KEY = 'refeicoes.v1';
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 
@@ -181,6 +181,16 @@ function normalize(){
   if (!Array.isArray(S.settings.meds)) S.settings.meds = [{ id: 'protetor', name: 'Protetor de estômago', on: true, mode: 'first', offset: 30, time: '08:00' }];
   S.done = S.done || {}; S.plans = S.plans || [];
   // Vitaminas/minerais: passam a lembrete de medicação "com a 1.ª refeição" (com ✓); o aviso geral antigo das 09:00 é desligado.
+  // Regras de opções do utilizador (valem para qualquer plano): acrescentar opções, separar escolhas, combinações a evitar.
+  if (!S.migOpt){
+    S.settings.optRules = [
+      { id: 'pure', when: '^\\d+\\s*g de ', add: ['1 saqueta de puré de fruta (sem açúcar adicionado)'] },
+      { id: 'leite', when: 'leite magro', add: ['Uma chávena almoçadeira de leite magro com cevada (240 ml) sem açúcar', '1 iogurte sólido magro e sem açúcar'] },
+      { id: 'iogpud', item: 'iogurte ou pudim proteico', replace: ['1 iogurte proteico', '1 pudim proteico'] },
+      { id: 'pudcer', avoid: ['pudim', 'cereais'] }
+    ];
+    S.migOpt = true;
+  }
   if (!S.migVit){
     if (!S.settings.meds.some(m => /vitamin|suplement|mineral/i.test(m.name)))
       S.settings.meds.push({ id: 'vitaminas', name: 'Vitaminas e minerais', on: true, mode: 'first', offset: 0, time: '08:30' });
@@ -584,7 +594,7 @@ function tipsHTML(m, open){
 // Uma opção nova só começa se a parte depois de "ou" começar por quantidade/maiúscula ("5 bolachas", "Torrada");
 // senão junta à anterior ("carne ou peixe", "arroz ou massa", "de centeio ou de mistura").
 const OPT_START = /^(\d|um\b|uma\b|duas?\b|dois\b|tr[eê]s\b|quatro\b|cinco\b|seis\b|meia?\b|[A-ZÁÉÍÓÚÂÊÔÃÕÇ])/;
-function parseOptions(item){
+function parseOptionsRaw(item){
   let prefix = '', body = item;
   const pm = item.match(/^([A-ZÁÉÍÓÚ][a-zà-ú]{2,11}): (.+)$/);
   if (pm){ prefix = pm[1]; body = pm[2]; }
@@ -604,7 +614,26 @@ function parseOptions(item){
   if (merged.length < 2) return null;
   return { prefix, head: '', options: merged.map(o => o.replace(/[;.]\s*$/, '').trim()) };
 }
-const optText = (o, k) => (o.prefix ? o.prefix + ': ' : '') + (o.head ? o.head.replace(/:$/, '') + ' — ' : '') + o.options[k];
+function parseOptions(item){
+  const rules = (S.settings && S.settings.optRules) || [];
+  let o = parseOptionsRaw(item);
+  const pm = item.match(/^([A-ZÁÉÍÓÚ][a-zà-ú]{2,11}): (.+)$/);
+  const prefix = pm ? pm[1] : '', body = pm ? pm[2] : item;
+  for (const r of rules) if (r.replace && norm(body).includes(norm(r.item))) o = { prefix, head: '', options: [...r.replace] };
+  if (!o) return null;
+  for (const r of rules) if (r.add && o.options.some(x => new RegExp(r.when, 'i').test(x)))
+    for (const a of r.add) if (!o.options.includes(a)) o.options.push(a);
+  return o;
+}
+// Cabeçalho ("Uma peça de fruta — ") só para opções do tipo "100g de …".
+const optText = (o, k) => (o.prefix ? o.prefix + ': ' : '') + (o.head && /^\d+\s*g /.test(o.options[k]) ? o.head.replace(/:$/, '') + ' — ' : '') + o.options[k];
+// Combinações a evitar na mesma refeição (ex.: pudim + cereais).
+function clash(text, others){
+  return ((S.settings && S.settings.optRules) || []).filter(r => r.avoid).some(r => {
+    const [a, b] = r.avoid.map(norm), t = norm(text);
+    return others.some(o => { const u = norm(o); return (t.includes(a) && u.includes(b)) || (t.includes(b) && u.includes(a)); });
+  });
+}
 const dayNum = d => Math.floor(new Date(d + 'T12:00:00').getTime() / 864e5);
 const hashStr = t => [...t].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
 function chosenIdx(date, meal, i, n){
@@ -614,18 +643,35 @@ function chosenIdx(date, meal, i, n){
 }
 // Itens da refeição para um dia: os que têm opções ficam com a escolha do dia.
 function mealForDay(meal, date){
-  return meal.items.map((it, i) => {
+  const xs = meal.items.map((it, i) => {
     const o = parseOptions(it); if (!o) return { text: it };
     const k = chosenIdx(date, meal, i, o.options.length);
-    return { text: optText(o, k), o, i, k };
+    const user = !!(S.choices && S.choices[date] && S.choices[date][meal.time] && S.choices[date][meal.time][i] != null);
+    return { text: optText(o, k), o, i, k, user };
   });
+  // Resolve combinações proibidas: muda o item que não foi escolhido à mão (ou o último) para a opção seguinte compatível.
+  for (let guard = 0; guard < 3; guard++){
+    const bad = xs.filter(x => x.o && clash(x.text, xs.filter(y => y !== x).map(y => y.text)));
+    if (!bad.length) break;
+    const x = bad.find(b => !b.user) || bad[bad.length - 1];
+    const others = xs.filter(y => y !== x).map(y => y.text);
+    for (let step = 1; step < x.o.options.length; step++){
+      const k = (x.k + step) % x.o.options.length;
+      if (!clash(optText(x.o, k), others)){ x.k = k; x.text = optText(x.o, k); break; }
+    }
+  }
+  return xs;
 }
 const hasOptions = m => m.items.some(i => parseOptions(i));
 function dayItemsHTML(m, date){
   return '<ul>' + mealForDay(m, date).map(x => !x.o ? `<li>${esc(x.text)}</li>` :
     `<li><span class="sugg">${esc(x.text)}</span>
-      <details class="note"><summary>Trocar (${x.o.options.length} opções)</summary><div class="opts">${x.o.options.map((op, k) =>
-        `<button class="btn small ${k === x.k ? 'primary' : ''}" onclick="setChoice('${m.time}',${x.i},${k},'${date}')">${esc(op)}</button>`).join('')}</div></details></li>`).join('') + '</ul>';
+      <details class="note"><summary>Trocar (${x.o.options.length} opções)</summary><div class="opts">${x.o.options.map((op, k) => {
+        const others = mealForDay(m, date).filter(y => y.i !== x.i).map(y => y.text);
+        const no = k !== x.k && clash(optText(x.o, k), others);
+        return no ? `<button class="btn small" disabled style="text-decoration:line-through" title="Não combina com o resto da refeição">${esc(op)}</button>`
+                  : `<button class="btn small ${k === x.k ? 'primary' : ''}" onclick="setChoice('${m.time}',${x.i},${k},'${date}')">${esc(op)}</button>`;
+      }).join('')}</div></details></li>`).join('') + '</ul>';
 }
 function setChoice(time, i, k, d){
   d = d || ymd(new Date());
