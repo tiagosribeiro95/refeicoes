@@ -154,7 +154,7 @@ nav.tabs button.on{color:var(--brand)}
    Tudo fica no dispositivo (localStorage). O PDF é lido
    localmente com pdf.js; nada é enviado para servidores.
    ========================================================= */
-const APP_VER = 'v11';
+const APP_VER = 'v12';
 const LS_KEY = 'refeicoes.v1';
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 
@@ -175,6 +175,15 @@ function load(){
 }
 let S = load();
 // Garante campos novos (também depois de recuperar uma cópia de segurança).
+const DEFAULT_OPT_RULES = [
+  { id: 'pure', when: '^\\d+\\s*g de ', add: ['1 saqueta de puré de fruta (sem açúcar adicionado)'] },
+  { id: 'leite', when: 'leite magro', add: ['Uma chávena almoçadeira de leite magro com cevada (240 ml) sem açúcar', '1 iogurte sólido magro e sem açúcar'] },
+  { id: 'iogpud', item: 'iogurte ou pudim proteico', replace: ['1 iogurte proteico', '1 pudim proteico'] },
+  { id: 'pudcer', avoid: ['pudim', 'cereais'] },
+  // Pão: a nutricionista aceita também pão branco/da avó torrado — é o habitual (prefer = escolhido por defeito).
+  { id: 'pao2', item: 'pão (45-50g)', replace: ['Pão branco ou pão da avó torrado (45-50g)', 'Um pão (45-50g) de centeio ou de mistura, demolhado no leite', 'Uma torrada seca (pão de centeio ou de mistura, 45-50g)'], prefer: 'Pão branco ou pão da avó torrado (45-50g)' },
+  { id: 'paoiog', avoid: ['demolhado no leite', 'iogurte'] }
+];
 function normalize(){
   S.settings = Object.assign({ lead: 15, atTime: false }, S.settings || {});
   S.settings.water = Object.assign({ on: false, every: 30, from: '08:00', to: '23:00', before: 0, after: 30 }, S.settings.water || {});
@@ -182,15 +191,11 @@ function normalize(){
   S.done = S.done || {}; S.plans = S.plans || [];
   // Vitaminas/minerais: passam a lembrete de medicação "com a 1.ª refeição" (com ✓); o aviso geral antigo das 09:00 é desligado.
   // Regras de opções do utilizador (valem para qualquer plano): acrescentar opções, separar escolhas, combinações a evitar.
-  if (!S.migOpt){
-    S.settings.optRules = [
-      { id: 'pure', when: '^\\d+\\s*g de ', add: ['1 saqueta de puré de fruta (sem açúcar adicionado)'] },
-      { id: 'leite', when: 'leite magro', add: ['Uma chávena almoçadeira de leite magro com cevada (240 ml) sem açúcar', '1 iogurte sólido magro e sem açúcar'] },
-      { id: 'iogpud', item: 'iogurte ou pudim proteico', replace: ['1 iogurte proteico', '1 pudim proteico'] },
-      { id: 'pudcer', avoid: ['pudim', 'cereais'] }
-    ];
-    S.migOpt = true;
-  }
+  // Regras novas (por id) são acrescentadas a quem já tem a app; removidas pelo utilizador ficam em optRulesOff.
+  S.settings.optRules = (S.settings.optRules || []).filter(r => !['pao'].includes(r.id));   // regras substituídas por versões novas
+  const off = S.settings.optRulesOff || [];
+  for (const r of DEFAULT_OPT_RULES) if (!S.settings.optRules.some(x => x.id === r.id) && !off.includes(r.id)) S.settings.optRules.push(JSON.parse(JSON.stringify(r)));
+  S.migOpt = true;
   if (!S.migVit){
     if (!S.settings.meds.some(m => /vitamin|suplement|mineral/i.test(m.name)))
       S.settings.meds.push({ id: 'vitaminas', name: 'Vitaminas e minerais', on: true, mode: 'first', offset: 0, time: '08:30' });
@@ -619,7 +624,7 @@ function parseOptions(item){
   let o = parseOptionsRaw(item);
   const pm = item.match(/^([A-ZÁÉÍÓÚ][a-zà-ú]{2,11}): (.+)$/);
   const prefix = pm ? pm[1] : '', body = pm ? pm[2] : item;
-  for (const r of rules) if (r.replace && norm(body).includes(norm(r.item))) o = { prefix, head: '', options: [...r.replace] };
+  for (const r of rules) if (r.replace && norm(body).includes(norm(r.item))) o = { prefix, head: '', options: [...r.replace], prefer: r.prefer ? r.replace.indexOf(r.prefer) : -1 };
   if (!o) return null;
   for (const r of rules) if (r.add && o.options.some(x => new RegExp(r.when, 'i').test(x)))
     for (const a of r.add) if (!o.options.includes(a)) o.options.push(a);
@@ -635,25 +640,46 @@ function clash(text, others){
   });
 }
 const dayNum = d => Math.floor(new Date(d + 'T12:00:00').getTime() / 864e5);
-const hashStr = t => [...t].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
-function chosenIdx(date, meal, i, n){
+// FNV-1a + mistura final (boa dispersão para textos parecidos, ex.: datas seguidas).
+const hashStr = t => {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < t.length; i++){ h ^= t.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); h ^= h >>> 16;
+  return h >>> 0;
+};
+function chosenIdx(date, meal, i, n, prefer){
   const c = S.choices && S.choices[date] && S.choices[date][meal.time] && S.choices[date][meal.time][i];
   if (c != null && c < n) return c;
-  return (dayNum(date) + hashStr(meal.time + ':' + i)) % n;      // roda todos os dias; refeições diferentes ≠ escolhas
+  if (prefer != null && prefer >= 0 && prefer < n) return prefer;            // opção habitual
+  // Sorteio determinístico por dia/refeição/item (independente entre itens), sem repetir a escolha de ontem.
+  const pick = d => hashStr(d + '|' + meal.time + '|' + i + '|' + n) % n;
+  const yest = ymd(new Date(new Date(date + 'T12:00:00').getTime() - 864e5));
+  let k = pick(date); if (n > 1 && k === pick(yest)) k = (k + 1) % n;
+  return k;
 }
 // Itens da refeição para um dia: os que têm opções ficam com a escolha do dia.
 function mealForDay(meal, date){
   const xs = meal.items.map((it, i) => {
     const o = parseOptions(it); if (!o) return { text: it };
-    const k = chosenIdx(date, meal, i, o.options.length);
-    const user = !!(S.choices && S.choices[date] && S.choices[date][meal.time] && S.choices[date][meal.time][i] != null);
+    const k = chosenIdx(date, meal, i, o.options.length, o.prefer);
+    const user = (o.prefer != null && o.prefer >= 0) || !!(S.choices && S.choices[date] && S.choices[date][meal.time] && S.choices[date][meal.time][i] != null);
     return { text: optText(o, k), o, i, k, user };
   });
-  // Resolve combinações proibidas: muda o item que não foi escolhido à mão (ou o último) para a opção seguinte compatível.
+  // Não repetir no mesmo dia a escolha de uma refeição anterior com as mesmas opções (ex.: fruta das 10:30 e das 15:00).
+  const plan = activePlan();
+  if (plan && plan.meals.includes(meal)){
+    const earlier = plan.meals.filter(m2 => m2.enabled !== false && toMin(m2.time) < toMin(meal.time) && m2.items.some(it => parseOptions(it)));
+    const used = new Set(earlier.flatMap(m2 => mealForDay(m2, date).filter(y => y.o).map(y => y.o.options[y.k])));
+    for (const x of xs){
+      if (!x.o || x.user || !used.has(x.o.options[x.k])) continue;
+      for (let step = 1; step < x.o.options.length; step++){ const k = (x.k + step) % x.o.options.length; if (!used.has(x.o.options[k])){ x.k = k; x.text = optText(x.o, k); break; } }
+    }
+  }
+  // Resolve combinações proibidas: muda o último item não escolhido à mão para a opção seguinte compatível.
   for (let guard = 0; guard < 3; guard++){
     const bad = xs.filter(x => x.o && clash(x.text, xs.filter(y => y !== x).map(y => y.text)));
     if (!bad.length) break;
-    const x = bad.find(b => !b.user) || bad[bad.length - 1];
+    const x = bad.filter(b => !b.user).pop() || bad[bad.length - 1];   // muda o acompanhamento (item mais abaixo), mantém o principal
     const others = xs.filter(y => y !== x).map(y => y.text);
     for (let step = 1; step < x.o.options.length; step++){
       const k = (x.k + step) % x.o.options.length;
